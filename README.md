@@ -14,6 +14,10 @@ legacy add-on in 3.6 to 4.1 (only 5.1 is tested).
 
 ### Install
 
+Download `print_splitter-<version>.zip` from the
+[Releases](https://github.com/ubergeekseven/Blender-custom-tools/releases)
+page; don't unzip it. Or build it yourself:
+
 ```
 python tools/build_zip.py        # writes dist/print_splitter-<version>.zip
 ```
@@ -126,6 +130,14 @@ Scale the mask, then click **Size Is Final** before you split it.
 Settings are in millimetres. By default one Blender unit is one millimetre,
 which is what STL, 3MF and OBJ files from printing sites use. Choose *Scene
 units* if your scene uses Metric with a unit scale.
+
+### Releasing
+
+1. Bump `version` in `print_splitter/blender_manifest.toml` (and `bl_info` in
+   `print_splitter/__init__.py`).
+2. On GitHub: Releases > Draft a new release > create tag `v<version>` >
+   Publish. The Release workflow runs the tests, builds the zip and attaches
+   it to the release.
 
 ### Tests
 
