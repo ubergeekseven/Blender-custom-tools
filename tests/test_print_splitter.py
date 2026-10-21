@@ -64,6 +64,14 @@ def world_z_range(obj):
     return min(zs), max(zs)
 
 
+def box_centre(obj):
+    """World position of the centre of the object's own bounding box."""
+    lo = [min(v.co[i] for v in obj.data.vertices) for i in range(3)]
+    hi = [max(v.co[i] for v in obj.data.vertices) for i in range(3)]
+    return obj.matrix_world @ Matrix.Translation([(lo[i] + hi[i]) / 2
+                                                  for i in range(3)]).to_translation()
+
+
 def close(a, b, tol):
     assert abs(a - b) <= tol, "%r != %r (tol %r)" % (a, b, tol)
 
@@ -188,6 +196,54 @@ def test_second_cut_on_other_piece():
     # The first cut's pins are untouched and piece A is still there.
     assert len([o for o in bpy.data.objects if o.name.startswith("Mask_pin_")]) == 4
     assert "Mask_A" in bpy.data.objects
+
+
+def test_size_guards():
+    ctx, s, obj, plane = setup_split('BOOLEAN')
+    from print_splitter import sizing
+    assert sizing.size_status(obj) == 'UNCONFIRMED'
+    assert bpy.ops.print_splitter.confirm_size() == {'FINISHED'}
+    assert sizing.size_status(obj) == 'OK'
+    obj.scale = (1.1, 1.1, 1.1)
+    bpy.context.view_layer.update()
+    assert sizing.size_status(obj) == 'CHANGED'
+    obj.scale = (1.0, 1.0, 1.0)
+    bpy.context.view_layer.update()
+    assert sizing.size_status(obj) == 'OK'
+
+    bpy.ops.print_splitter.auto_place_pins()
+    bpy.ops.print_splitter.split()
+    a = bpy.data.objects["Mask_A"]
+    pins = [o for o in bpy.data.objects if o.name.startswith("Mask_pin_")]
+    # Pieces of a confirmed object are confirmed too; rotating doesn't count
+    # as resizing.
+    assert sizing.size_status(a) == 'OK'
+    for o in ctx.selected_objects:
+        o.select_set(False)
+    a.select_set(True)
+    bpy.ops.print_splitter.cut_face_down()
+    assert sizing.resized_after_cut(ctx.scene.objects) == []
+
+    # "Select all, scale 80%": everything gets flagged, with the new sizes.
+    for o in (a, bpy.data.objects["Mask_B"], *pins):
+        o.matrix_world = Matrix.Scale(0.8, 4) @ o.matrix_world
+    resized = dict(sizing.resized_after_cut(ctx.scene.objects))
+    assert len(resized) == 2 + len(pins)
+    close(resized[a], 0.8, 1e-4)
+    close(a[sizing.HOLE_MM_KEY] * resized[a], 5.2 * 0.8, 1e-3)
+    close(pins[0][sizing.PIN_MM_KEY] * resized[pins[0]], 4.0, 1e-3)
+
+    # Applying the scale doesn't hide it.
+    a.data.transform(Matrix.Diagonal((*a.matrix_world.to_scale(), 1.0)))
+    loc, rot, _sc = a.matrix_world.decompose()
+    a.matrix_world = Matrix.LocRotScale(loc, rot, None)
+    assert a in dict(sizing.resized_after_cut(ctx.scene.objects))
+
+    centre_before = box_centre(a)
+    assert bpy.ops.print_splitter.restore_cut_size() == {'FINISHED'}
+    assert sizing.resized_after_cut(ctx.scene.objects) == []
+    centre_after = box_centre(a)
+    assert (centre_after - centre_before).length < 1e-3
 
 
 def test_plane_misses():

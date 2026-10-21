@@ -26,6 +26,18 @@ The tools are in the 3D Viewport sidebar (press **N**), on the **Print Split** t
 
 ### Splitting a model
 
+**Get the size right first.** Pin holes and pins are made at their real size,
+so scaling pieces after cutting makes the pins stop fitting. Scaling
+everything together still shrinks or grows the pins and changes the
+clearance. The panel's first step shows the model's size and a **Size Is
+Final** button; if you haven't clicked it, **Split** asks before cutting. The
+Head Fit panel below helps you pick the size. Pieces cut from a model marked
+final are marked final too.
+
+If pieces or pins get scaled after cutting, even with the scale applied, the
+panel lists them with their new hole and pin sizes. **Undo Scaling After
+Cut** puts them back.
+
 1. Select the model and click **+** next to *Cut Plane*. A grid plane appears
    through the middle of the model. Its blue Z axis is the cut direction: the
    piece on that side becomes `<name>_A`, the other one `<name>_B`.
@@ -107,7 +119,7 @@ Open the **Head Fit** panel.
    Only the object's scale changes, so you can undo it or apply it with
    Ctrl+A.
 
-Scale the mask before you split it, so the pins and holes keep their sizes.
+Scale the mask, then click **Size Is Final** before you split it.
 
 ### Units
 

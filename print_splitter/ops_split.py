@@ -9,6 +9,7 @@ from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
 
 from . import geometry as geo
+from . import sizing
 from .units import mm_to_bu
 
 PREVIEW_MESH = "PS Hole Preview"
@@ -254,6 +255,19 @@ class PRINTSPLIT_OT_split(bpy.types.Operator):
     bl_label = "Split"
     bl_options = {'REGISTER', 'UNDO'}
 
+    def invoke(self, context, event):
+        target = get_target(context)
+        if target is None or sizing.size_status(target) == 'OK':
+            return self.execute(context)
+        message = ("Pin holes and pins are made at real size. Scaling after the "
+                   "cut makes them stop fitting. Is %s at its final size?" % target.name)
+        try:
+            return context.window_manager.invoke_confirm(
+                self, event, title="Size not marked final", message=message,
+                confirm_text="Split Anyway", icon='WARNING')
+        except TypeError:  # Blender 4.0 and older: no custom text
+            return context.window_manager.invoke_confirm(self, event)
+
     def execute(self, context):
         s = context.scene.print_splitter
         target, plane = get_target(context), s.cut_plane
@@ -312,8 +326,13 @@ class PRINTSPLIT_OT_split(bpy.types.Operator):
                 _remove_object(o)
             bpy.data.collections.remove(tmp)
 
+        size_ok = sizing.size_status(target) == 'OK'
+        hole_mm = (s.pin_diameter + s.hole_clearance) if centers else None
         for part, sign in ((part_a, 1.0), (part_b, -1.0)):
             _store_cut_normal(part, frame.n * -sign)
+            sizing.stamp_made(part, hole_mm=hole_mm)
+            if size_ok:
+                sizing.confirm_size(part)
             if s.separate > 0.0:
                 part.matrix_world = Matrix.Translation(frame.n * (sign * s.separate * mm)) \
                     @ part.matrix_world
@@ -411,6 +430,7 @@ class PRINTSPLIT_OT_split(bpy.types.Operator):
                 pin.matrix_world = Matrix.Translation(c - frame.n * (length * 0.5)) \
                     @ frame.rot.to_4x4()
             _link(pin, target)
+            sizing.stamp_made(pin, pin_mm=s.pin_diameter)
             pins.append(pin)
         return pins
 

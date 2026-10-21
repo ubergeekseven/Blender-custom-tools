@@ -14,14 +14,14 @@ bl_info = {
 
 if "bpy" in locals():
     import importlib
-    for _m in (units, geometry, head, props, ops_split, ops_fit, ui):  # noqa: F821
+    for _m in (units, geometry, head, props, sizing, ops_split, ops_fit, ui):  # noqa: F821
         importlib.reload(_m)
 
 import bpy  # noqa: E402,F401
 
-from . import geometry, head, ops_fit, ops_split, props, ui, units  # noqa: E402
+from . import geometry, head, ops_fit, ops_split, props, sizing, ui, units  # noqa: E402
 
-_modules = (props, ops_split, ops_fit, ui)
+_modules = (props, sizing, ops_split, ops_fit, ui)
 
 
 def register():

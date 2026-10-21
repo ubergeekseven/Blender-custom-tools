@@ -1,7 +1,9 @@
 import bpy
 
 from . import head as head_mod
+from . import sizing
 from .ops_split import get_target, pin_markers
+from .units import bu_to_mm
 
 
 class _Panel:
@@ -19,10 +21,14 @@ class PRINTSPLIT_PT_split(_Panel, bpy.types.Panel):
 
         col = layout.column(align=True)
         col.prop(s, "target")
+        target = get_target(context)
         if s.target is None:
-            target = get_target(context)
             col.label(text="Using: %s" % (target.name if target else "nothing selected"),
                       icon='INFO')
+
+        _draw_resized_warning(layout, context)
+        if target is not None:
+            _draw_size_step(layout, context, target)
         row = col.row(align=True)
         row.prop(s, "cut_plane")
         row.operator("print_splitter.add_cut_plane", text="", icon='ADD')
@@ -34,6 +40,49 @@ class PRINTSPLIT_PT_split(_Panel, bpy.types.Panel):
         col.prop(s, "separate")
 
         layout.prop(s, "units")
+
+
+def _draw_size_step(layout, context, target):
+    box = layout.box()
+    status = sizing.size_status(target)
+    d = sizing.dims(target) * bu_to_mm(context)
+    if status == 'OK':
+        box.label(text="1. Size is final", icon='CHECKMARK')
+        box.label(text="%.1f × %.1f × %.1f mm" % (d.x, d.y, d.z))
+        return
+    box.alert = True
+    box.label(text="1. Scale before you cut!", icon='ERROR')
+    col = box.column(align=True)
+    col.label(text="Now %.1f × %.1f × %.1f mm" % (d.x, d.y, d.z))
+    if status == 'CHANGED':
+        col.label(text="Size changed since you marked it final")
+    col.label(text="Pins and holes are made at real")
+    col.label(text="size; scaling later breaks the fit.")
+    col.label(text="Check it with Head Fit below.")
+    box.alert = False
+    box.operator("print_splitter.confirm_size", icon='LOCKED')
+
+
+def _draw_resized_warning(layout, context):
+    resized = sizing.resized_after_cut(context.scene.objects)
+    if not resized:
+        return
+    box = layout.box()
+    box.alert = True
+    box.label(text="Scaled after cutting: pins won't fit", icon='ERROR')
+    col = box.column(align=True)
+    for obj, ratio in resized[:6]:
+        if sizing.HOLE_MM_KEY in obj:
+            extra = ", holes now Ø%.2f mm" % (obj[sizing.HOLE_MM_KEY] * ratio)
+        elif sizing.PIN_MM_KEY in obj:
+            extra = ", pin now %.2f mm" % (obj[sizing.PIN_MM_KEY] * ratio)
+        else:
+            extra = ""
+        col.label(text="%s at %.0f%%%s" % (obj.name, ratio * 100.0, extra))
+    if len(resized) > 6:
+        col.label(text="…and %d more" % (len(resized) - 6))
+    box.alert = False
+    box.operator("print_splitter.restore_cut_size", icon='LOOP_BACK')
 
 
 class PRINTSPLIT_PT_pins(_Panel, bpy.types.Panel):
@@ -115,7 +164,6 @@ class PRINTSPLIT_PT_fit(_Panel, bpy.types.Panel):
 
         obj = context.active_object
         if obj is not None and obj.type == 'MESH':
-            from .units import bu_to_mm
             d = obj.dimensions * bu_to_mm(context)
             box = layout.box()
             box.label(text=obj.name, icon='OBJECT_DATA')
