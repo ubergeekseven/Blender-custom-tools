@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+
+id = "print_splitter"
+version = "0.1.0"
+name = "Print Splitter"
+tagline = "Cut models with a plane, cap the cut flat and add pin registration holes"
+maintainer = "ubergeekseven"
+type = "add-on"
+
+website = "https://github.com/ubergeekseven/Blender-custom-tools"
+tags = ["Mesh", "Modeling", "3D View"]
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
