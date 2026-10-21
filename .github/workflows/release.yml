@@ -18,7 +18,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Check tag matches the add-on version
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' print_splitter/blender_manifest.toml)
