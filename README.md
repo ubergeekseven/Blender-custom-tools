@@ -40,7 +40,12 @@ The tools are in the 3D Viewport sidebar (press **N**), on the **Print Split** t
 5. Select the pieces and click **Cut Face Down** to rest each one on its cut
    face at Z = 0, ready to export.
 
-Cut a piece again by choosing it as the object and adding another plane.
+To cut again, click any piece (an original or one you already cut) and click
+**+** for a new plane. The new plane goes on the selected piece, and you can
+set a different angle and different pins. Repeat as many times as you like.
+Pieces are named after where they came from: cutting `Mask_B` gives
+`Mask_B_A` and `Mask_B_B`. Each plane keeps its own pin markers, and earlier
+cuts and pins stay as they are.
 
 #### Pin sizing
 

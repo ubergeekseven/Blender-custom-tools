@@ -160,6 +160,36 @@ def test_split_bisect():
     _check_split('BISECT')
 
 
+def test_second_cut_on_other_piece():
+    ctx, s, obj, plane = setup_split('BOOLEAN')
+    bpy.ops.print_splitter.auto_place_pins()
+    bpy.ops.print_splitter.split()
+    b = bpy.data.objects["Mask_B"]
+    vol_b = geo.mesh_volume(b)
+    # Click piece B, add a new plane at another angle and cut it again.
+    for o in ctx.selected_objects:
+        o.select_set(False)
+    b.select_set(True)
+    ctx.view_layer.objects.active = b
+    assert bpy.ops.print_splitter.add_cut_plane(axis='X') == {'FINISHED'}
+    assert s.target is b and s.cut_plane is not plane
+    s.cut_plane.matrix_world = Matrix.Translation((20, 0, -30)) @ \
+        Matrix.Rotation(math.radians(25), 4, 'Y') @ Matrix.Rotation(math.radians(90), 4, 'Y')
+    s.pin_count = 2
+    assert bpy.ops.print_splitter.auto_place_pins() == {'FINISHED'}
+    assert bpy.ops.print_splitter.split() == {'FINISHED'}
+    ba, bb = bpy.data.objects["Mask_B_A"], bpy.data.objects["Mask_B_B"]
+    for part in (ba, bb):
+        assert non_manifold_edges(part) == 0, part.name
+    hole_r = (s.pin_diameter + s.hole_clearance) / 2.0
+    hole_depth = s.pin_length / 2.0 + s.hole_extra_depth
+    holes = 2 * math.pi * hole_r ** 2 * hole_depth
+    close(geo.mesh_volume(ba) + geo.mesh_volume(bb), vol_b - 2 * holes, vol_b * 0.003)
+    # The first cut's pins are untouched and piece A is still there.
+    assert len([o for o in bpy.data.objects if o.name.startswith("Mask_pin_")]) == 4
+    assert "Mask_A" in bpy.data.objects
+
+
 def test_plane_misses():
     ctx, s, obj, plane = setup_split('BOOLEAN')
     plane.location = (0, 0, 500)

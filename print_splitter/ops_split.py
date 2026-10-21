@@ -141,6 +141,12 @@ class PRINTSPLIT_OT_add_cut_plane(bpy.types.Operator):
 
     def execute(self, context):
         s = context.scene.print_splitter
+        # A selected mesh wins over the remembered target, so after a split you
+        # can click the piece you want to cut next and add a plane for it.
+        active = context.active_object
+        if active is not None and active.type == 'MESH' and active.select_get() \
+                and not active.get(MARKER_KEY) and active is not s.cut_plane:
+            s.target = active
         target = get_target(context)
         if target is not None:
             lo, hi = _world_bbox(target)
