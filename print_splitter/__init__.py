@@ -5,7 +5,7 @@ add hexagonal registration pins and check how a mask fits a head."""
 bl_info = {
     "name": "Print Splitter",
     "author": "ubergeekseven",
-    "version": (0, 1, 0),
+    "version": (0, 2, 0),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar > Print Split",
     "description": "Split models with a plane, cap the cut and add pin registration holes",
@@ -14,14 +14,16 @@ bl_info = {
 
 if "bpy" in locals():
     import importlib
-    for _m in (units, geometry, head, props, sizing, ops_split, ops_fit, ui):  # noqa: F821
+    for _m in (units, geometry, head, props, sizing, ops_split, ops_fit, landmarks,  # noqa: F821
+               ui):  # noqa: F821
         importlib.reload(_m)
 
 import bpy  # noqa: E402,F401
 
-from . import geometry, head, ops_fit, ops_split, props, sizing, ui, units  # noqa: E402
+from . import (geometry, head, landmarks, ops_fit, ops_split, props, sizing,  # noqa: E402
+               ui, units)
 
-_modules = (props, sizing, ops_split, ops_fit, ui)
+_modules = (props, sizing, ops_split, ops_fit, landmarks, ui)
 
 
 def register():

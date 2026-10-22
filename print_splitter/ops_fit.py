@@ -148,10 +148,11 @@ class PRINTSPLIT_OT_add_head(bpy.types.Operator):
 
 
 class PRINTSPLIT_OT_scale_to_measurements(bpy.types.Operator):
-    """Scale the active object (e.g. an imported head model) to the measured
-    width, length and height along the world X, Y and Z axes"""
+    """Scale an imported head model to the measured width, length and height
+    (its whole bounding box, along world X, Y and Z). Not for masks: ears or
+    horns would count toward the size. Use reference points for a mask"""
     bl_idname = "print_splitter.scale_to_measurements"
-    bl_label = "Scale Active to Measurements"
+    bl_label = "Scale Head Model to Measurements"
     bl_options = {'REGISTER', 'UNDO'}
 
     mode: EnumProperty(

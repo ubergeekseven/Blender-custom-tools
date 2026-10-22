@@ -107,9 +107,26 @@ Open the **Head Fit** panel.
    percent more.
 2. Click **Add Head From Measurements** for a generic head of that size, which
    faces −Y with Z up. To use your own head model instead (a scan, say),
-   select it and click **Scale Active to Measurements**.
-3. Pick the head and the mask, then move the head to where it will sit in the
-   mask.
+   select it and click **Scale Head Model to Measurements**. Don't use that
+   button on the mask: it sizes the whole bounding box, so ears or horns
+   would count toward the head's height.
+3. Pick the head and the mask, then size and place the mask with
+   **reference points**:
+   * Shift + right-click a spot on the mask to put the 3D cursor there, then
+     click **Add Point**. The point goes on whichever of mask and head is
+     nearer the cursor.
+   * Mark the same spot on the head, then repeat for a few more spots in the
+     same order. Mask point 1 pairs with head point 1, and so on. Good spots
+     are easy to find on both: crown, left and right temple, chin, back of
+     the head.
+   * The panel shows how much the mask needs scaling. **Fit Mask to Points**
+     applies it. *Scale only* resizes the mask in place; *Scale and move*
+     also moves it onto the head (two or more pairs); *Scale, move and turn*
+     also rotates it to the best fit (three or more pairs).
+
+   Points on the outside of the mask sit a wall's thickness away from the
+   head's skin, so this gets the size close, not exact. The next steps add
+   the breathing room.
 4. **Check Fit** colours the head:
    * red: the head goes into the mask
    * orange: the gap is less than *Min Gap*
