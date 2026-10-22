@@ -54,9 +54,14 @@ def _smooth(e0, e1, x):
     return t * t * (3.0 - 2.0 * t)
 
 
-def _point(a, b, c, h, theta):
+EYE_H = -0.02  # pupils sit just below half the head's height
+EYEBALL_MM = 12.0  # eyeball radius
+
+
+def _point(a, b, c, h, theta, eye_x=0.33, sockets=True):
     """Surface point for height ``h`` in [-1, 1] and angle ``theta`` around
-    the vertical axis (0 = +X, -pi/2 = front)."""
+    the vertical axis (0 = +X, -pi/2 = front). ``eye_x`` is half the pupil
+    distance as a fraction of the half-width."""
     w = a * _profile(_WIDTH, h)
     f = b * _profile(_FRONT, h)
     k = b * _profile(_BACK, h)
@@ -71,16 +76,17 @@ def _point(a, b, c, h, theta):
     front = max(0.0, -st) ** 4
 
     # Nose: grows from the bridge to the tip, then tucks under.
-    if -0.45 < h < 0.05 and st < 0.0:
+    if -0.52 < h < 0.05 and st < 0.0:
         if h > -0.34:
             prof = 0.15 + 0.85 * _smooth(0.05, -0.34, h)
         else:
-            prof = 1.0 - _smooth(-0.34, -0.45, h)
-        width = 0.06 + 0.08 * _smooth(0.05, -0.34, h)
+            prof = 1.0 - _smooth(-0.34, -0.52, h)
+        width = 0.08 + 0.12 * _smooth(0.05, -0.34, h)
         y -= 0.11 * 2.0 * b * prof * _gauss(xn, width) * front
-    # Eye sockets, brow ridge, cheekbones, lips, chin.
-    y += 0.06 * b * _gauss(abs(xn) - 0.33, 0.13) * _gauss(h + 0.03, 0.09) * front
-    y -= 0.02 * b * _gauss(abs(xn) - 0.30, 0.25) * _gauss(h - 0.09, 0.05) * front
+    # Eye sockets (centred on the pupils), brow ridge, cheekbones, lips, chin.
+    if sockets:
+        y += 0.085 * b * _gauss(abs(xn) - eye_x, 0.12) * _gauss(h - EYE_H, 0.085) * front
+    y -= 0.02 * b * _gauss(abs(xn) - eye_x, 0.25) * _gauss(h - 0.09, 0.05) * front
     y -= 0.03 * b * _gauss(xn, 0.20) * _gauss(h + 0.57, 0.06) * front
     y -= 0.03 * b * _gauss(xn, 0.22) * _gauss(h + 0.86, 0.06) * front
     x += math.copysign(0.03 * a * _gauss(abs(xn) - 0.70, 0.15) * _gauss(h + 0.22, 0.10)
@@ -93,9 +99,11 @@ def _point(a, b, c, h, theta):
     return x, y, z
 
 
-def head_bmesh(width, length, height, rings=72, segments=96):
-    """Closed, manifold head mesh. Dimensions are full sizes in scene units."""
+def head_bmesh(width, length, height, ipd=None, rings=96, segments=144):
+    """Closed, manifold head mesh. Dimensions are full sizes in scene units;
+    ``ipd`` is the pupil distance (default: a typical 0.42 x width)."""
     a, b, c = width * 0.5, length * 0.5, height * 0.5
+    eye_x = (ipd * 0.5 / a) if ipd else 0.21
     bm = bmesh.new()
     bottom = bm.verts.new((0.0, 0.0, -c))
     top = bm.verts.new((0.0, 0.0, c))
@@ -106,7 +114,7 @@ def head_bmesh(width, length, height, rings=72, segments=96):
         row = []
         for j in range(segments):
             theta = 2.0 * math.pi * j / segments
-            row.append(bm.verts.new(_point(a, b, c, h, theta)))
+            row.append(bm.verts.new(_point(a, b, c, h, theta, eye_x)))
         grid.append(row)
     n = segments
     first, last = grid[0], grid[-1]
@@ -126,3 +134,72 @@ def head_circumference(width, length):
     percent more) and a handy check that the three numbers are right."""
     a, b = width * 0.5, length * 0.5
     return math.pi * (3.0 * (a + b) - math.sqrt((3.0 * a + b) * (a + 3.0 * b)))
+
+
+def _front_point_at_x(a, b, c, h, x_target, eye_x):
+    """Face surface (without the eye socket) at height ``h`` where x equals
+    ``x_target``, found by bisection on the angle across the front."""
+    lo, hi = -math.pi / 2.0, 0.0  # front centre .. side
+    for _ in range(60):
+        mid = (lo + hi) * 0.5
+        x, _y, _z = _point(a, b, c, h, mid, eye_x, sockets=False)
+        if x < x_target:
+            lo = mid
+        else:
+            hi = mid
+    return _point(a, b, c, h, (lo + hi) * 0.5, eye_x, sockets=False)
+
+
+def head_features(width, length, height, ipd, eyeball_r):
+    """Named points on the head plus eyeball centres, in head space.
+
+    Returns (points, eyes) where points maps a name to (x, y, z) and eyes
+    maps "Left"/"Right" to the eyeball centre. The head faces -Y, so its
+    left is +X.
+    """
+    a, b, c = width * 0.5, length * 0.5, height * 0.5
+    eye_x = ipd * 0.5 / a
+    pts = {"Crown": (0.0, 0.0, c)}
+    eyes = {}
+    for side, sign in (("Left", 1.0), ("Right", -1.0)):
+        fx, fy, _fz = _front_point_at_x(a, b, c, EYE_H, ipd * 0.5, eye_x)
+        centre = (sign * fx, fy + 1.35 * eyeball_r, c * EYE_H)  # set back in the socket
+        eyes[side] = centre
+        pts["%s eye" % side] = (centre[0], centre[1] - eyeball_r, centre[2])
+    tip = min((_point(a, b, c, h, -math.pi / 2.0, eye_x) for h in
+               [-0.45 + 0.005 * i for i in range(41)]), key=lambda p: p[1])
+    pts["Nose tip"] = (0.0, tip[1], tip[2])
+    pts["Chin"] = _point(a, b, c, -0.95, -math.pi / 2.0, eye_x)
+    pts["Back of head"] = _point(a, b, c, 0.1, math.pi / 2.0, eye_x)
+    pts["Left ear"] = _point(a, b, c, -0.12, 0.12, eye_x)
+    pts["Right ear"] = _point(a, b, c, -0.12, math.pi - 0.12, eye_x)
+    return pts, eyes
+
+
+def neck_bmesh(width, length, height, segments=48):
+    """Elliptical neck reaching from inside the jaw to below the chin."""
+    a, b, c = width * 0.5, length * 0.5, height * 0.5
+    bm = bmesh.new()
+    top, bottom = -0.45 * c, -c - 0.35 * c
+    bmesh.ops.create_cone(bm, cap_ends=True, segments=segments, radius1=1.0, radius2=1.0,
+                          depth=top - bottom)
+    for v in bm.verts:
+        v.co.x *= 0.72 * a
+        v.co.y = v.co.y * 0.55 * b + 0.18 * b
+        v.co.z += (top + bottom) * 0.5
+    return bm
+
+
+def hat_size_to_circumference(system, size):
+    """Head circumference in mm for a hat size."""
+    if system == 'US':  # US/UK hat size = circumference in inches / pi
+        return size * math.pi * 25.4
+    return size * 10.0  # EU hat size = circumference in cm
+
+
+def head_from_circumference(width, length, circumference):
+    """Scale width and length together so the ellipse matches a measured
+    circumference, keeping their ratio."""
+    now = head_circumference(width, length)
+    k = circumference / now if now > 0.0 else 1.0
+    return width * k, length * k
