@@ -95,6 +95,14 @@ class PrintSplitterSettings(bpy.types.PropertyGroup):
         ],
         default='FLAT')
 
+    bed_x: FloatProperty(name="Bed X (mm)", min=10.0, soft_max=1000.0, default=256.0,
+                         description="Printer's build width; export warns about pieces that "
+                                     "won't fit. 256 suits Bambu X1, P1 and A1")
+    bed_y: FloatProperty(name="Bed Y (mm)", min=10.0, soft_max=1000.0, default=256.0,
+                         description="Printer's build depth")
+    bed_z: FloatProperty(name="Bed Z (mm)", min=10.0, soft_max=1000.0, default=256.0,
+                         description="Printer's build height")
+
     # ---- head fit --------------------------------------------------------
     head_width: FloatProperty(
         name="Width (mm)", min=50.0, soft_max=250.0, default=150.0,

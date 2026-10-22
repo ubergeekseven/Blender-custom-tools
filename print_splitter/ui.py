@@ -134,6 +134,14 @@ class PRINTSPLIT_PT_do_split(_Panel, bpy.types.Panel):
         col.scale_y = 1.4
         col.operator("print_splitter.split", icon='MOD_BOOLEAN')
         self.layout.operator("print_splitter.cut_face_down", icon='TRIA_DOWN_BAR')
+        s = context.scene.print_splitter
+        col = self.layout.column(align=True)
+        row = col.row(align=True)
+        row.label(text="Bed (mm)")
+        row.prop(s, "bed_x", text="")
+        row.prop(s, "bed_y", text="")
+        row.prop(s, "bed_z", text="")
+        col.operator("print_splitter.export", icon='EXPORT')
 
 
 def _draw_points(layout, context):

@@ -313,6 +313,110 @@ def test_point_fit_scale_only_and_move():
     assert not landmarks.points(mask) and not landmarks.points(head)
 
 
+def _read_stl(path):
+    import numpy as np
+    with open(path, "rb") as f:
+        data = f.read()
+    n = int.from_bytes(data[80:84], "little")
+    rec = np.frombuffer(data[84:84 + 50 * n], dtype=[("n", "<f4", 3), ("v", "<f4", (3, 3)),
+                                                      ("a", "<u2")])
+    return rec["v"].reshape(-1, 3)
+
+
+def _read_3mf(path):
+    import zipfile
+    import xml.etree.ElementTree as ET
+    ns = {"m": "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"}
+    with zipfile.ZipFile(path) as zf:
+        root = ET.fromstring(zf.read("3D/3dmodel.model"))
+    assert root.get("unit") == "millimeter"
+    objects = {}
+    for obj in root.findall("m:resources/m:object", ns):
+        verts = [[float(v.get(k)) for k in "xyz"]
+                 for v in obj.findall("m:mesh/m:vertices/m:vertex", ns)]
+        tris = obj.findall("m:mesh/m:triangles/m:triangle", ns)
+        assert tris and all(int(t.get(k)) < len(verts) for t in tris for k in ("v1", "v2", "v3"))
+        objects[obj.get("name")] = verts
+    assert len(root.findall("m:build/m:item", ns)) == len(objects)
+    return objects
+
+
+def _extent(points):
+    return [max(p[i] for p in points) - min(p[i] for p in points) for i in range(3)]
+
+
+def _export_head(tmpdir, units, system, scale_length):
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    s.units = units
+    ctx.scene.unit_settings.system = system
+    ctx.scene.unit_settings.scale_length = scale_length
+    bpy.ops.print_splitter.add_head()
+    head = s.head
+    head.rotation_euler = (0.3, 0.0, 0.5)  # export uses the world placement
+    ctx.view_layer.update()
+    from print_splitter.units import bu_to_mm
+    world = [head.matrix_world @ v.co for v in head.data.vertices]
+    want = [d * bu_to_mm(ctx) for d in _extent(world)]
+    path3 = os.path.join(tmpdir, "head.3mf")
+    assert bpy.ops.print_splitter.export(filepath=path3, file_format='3MF') == {'FINISHED'}
+    got3 = _extent(_read_3mf(path3)["Head"])
+    paths = os.path.join(tmpdir, "head.stl")
+    assert bpy.ops.print_splitter.export(filepath=paths, file_format='STL') == {'FINISHED'}
+    gots = _extent(_read_stl(paths))
+    for a, b, c in zip(want, got3, gots):
+        close(b, a, 1e-3)
+        close(c, a, 1e-2)
+    return want
+
+
+def test_export_true_size_whatever_the_scene_units():
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        # 1 unit = 1 mm in the add-on, scene left at metres (the reported setup).
+        a = _export_head(d, 'MM', 'METRIC', 1.0)
+        # Scene set to millimetres.
+        b = _export_head(d, 'SCENE', 'METRIC', 0.001)
+        # Scene in metres and the add-on following it: head built 0.15 units wide.
+        c = _export_head(d, 'SCENE', 'METRIC', 1.0)
+        for x, y, z in zip(a, b, c):
+            close(x, y, 1e-3)
+            close(x, z, 1e-2)
+        assert 150.0 < a[0] < 200.0  # a head, in millimetres
+
+
+def test_export_pieces_and_pins():
+    import tempfile
+    ctx, s, obj, plane = setup_split('BOOLEAN')
+    bpy.ops.print_splitter.auto_place_pins()
+    bpy.ops.print_splitter.split()
+    # Selection includes things that must not be printed.
+    plane.hide_set(False)
+    plane.select_set(True)
+    marker = [c for c in plane.children if c.get("ps_pin_marker")][0]
+    marker.hide_set(False)
+    marker.select_set(True)
+    with tempfile.TemporaryDirectory() as d:
+        path3 = os.path.join(d, "mask.3mf")
+        assert bpy.ops.print_splitter.export(filepath=path3, file_format='3MF') == {'FINISHED'}
+        objects = _read_3mf(path3)
+        assert set(objects) == {"Mask_A", "Mask_B", "Mask_pin_01", "Mask_pin_02",
+                                "Mask_pin_03", "Mask_pin_04"}, set(objects)
+        close(_extent(objects["Mask_pin_01"])[0], s.pin_length, 1e-3)
+        assert bpy.ops.print_splitter.export(filepath=os.path.join(d, "mask.stl"),
+                                             file_format='STL') == {'FINISHED'}
+        assert sorted(os.listdir(d)) == sorted(
+            ["mask.3mf", "mask_Mask_A.stl", "mask_Mask_B.stl"]
+            + ["mask_Mask_pin_%02d.stl" % i for i in range(1, 5)])
+    for o in ctx.selected_objects:
+        o.select_set(False)
+    try:
+        bpy.ops.print_splitter.export(filepath="/nonexistent.3mf")
+        raise AssertionError("export with nothing selected should fail")
+    except RuntimeError as e:
+        assert "Select the pieces" in str(e)
+
+
 def test_plane_misses():
     ctx, s, obj, plane = setup_split('BOOLEAN')
     plane.location = (0, 0, 500)

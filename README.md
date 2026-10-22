@@ -54,7 +54,8 @@ Cut** puts them back.
 4. Click **Split**. The original is hidden, not deleted. You get two closed
    pieces with flat cut faces and holes, plus the pins.
 5. Select the pieces and click **Cut Face Down** to rest each one on its cut
-   face at Z = 0, ready to export.
+   face at Z = 0.
+6. Select the pieces and pins and click **Export for Printing** (see below).
 
 To cut again, click any piece (an original or one you already cut) and click
 **+** for a new plane. The new plane goes on the selected piece, and you can
@@ -142,11 +143,39 @@ Open the **Head Fit** panel.
 
 Scale the mask, then click **Size Is Final** before you split it.
 
+### Exporting for the slicer
+
+**Export for Printing** (under Split) writes the selected pieces and pins at
+their true size in millimetres:
+
+* **3MF** (default): one file holding every piece. The file states that it's
+  in millimetres, and Bambu Studio, OrcaSlicer, PrusaSlicer and Cura load
+  each piece as its own object.
+* **STL**: one file per piece, named after it (`mask_Mask_A.stl`, ...). STL
+  has no units; slicers read it as millimetres.
+
+Sizes come from the same unit setting the pins and holes were made with, so
+the scene's unit settings and other exporters' options can't change them.
+Cut planes and hole markers are left out even if selected. The status bar
+shows the size, and the system console (Window > Toggle System Console on
+Windows) lists every piece.
+
+Set **Bed** to your printer's build volume (256 × 256 × 256 mm suits Bambu
+X1, P1 and A1). Export warns about any piece too big for it in every
+orientation, which is when the slicer will offer to shrink it. Cut those
+pieces again.
+
 ### Units
 
 Settings are in millimetres. By default one Blender unit is one millimetre,
 which is what STL, 3MF and OBJ files from printing sites use. Choose *Scene
 units* if your scene uses Metric with a unit scale.
+
+With the default, Blender's own panels may label sizes in metres (a 150 mm
+head shows as "150 m") when the scene is Metric at Unit Scale 1. The model is
+fine; only the label is off. Export for Printing always writes true
+millimetres. Other exporters may apply the scene's unit scale and write the
+wrong size, so check sizes in the slicer if you use them.
 
 ### Releasing
 
