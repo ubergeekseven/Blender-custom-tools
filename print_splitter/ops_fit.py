@@ -290,7 +290,8 @@ class PRINTSPLIT_OT_scale_mask_to_fit(bpy.types.Operator):
             return {'CANCELLED'}
         s = context.scene.print_splitter
         mm = mm_to_bu(context)
-        need = s.min_clearance * mm
+        # Aim a hair over the minimum so rounding can't leave it just under.
+        need = s.min_clearance * mm * 1.0001
         rng = max(s.fit_range * mm, need * 2.0)
         axes = {'XYZ': (1, 1, 1), 'XY': (1, 1, 0), 'X': (1, 0, 0)}[s.fit_axes]
         pivot = _world_bbox_center(head)
