@@ -118,6 +118,17 @@ class PrintSplitterSettings(bpy.types.PropertyGroup):
         name="Check Range (mm)", min=1.0, soft_max=200.0, default=40.0,
         description="Head areas further than this from the mask are not checked "
                     "(e.g. the neck below a mask)")
+    point_fit: EnumProperty(
+        name="Fit",
+        items=[
+            ('SCALE', "Scale only",
+             "Resize the mask; it stays where it is (2+ point pairs)"),
+            ('SCALE_MOVE', "Scale and move",
+             "Resize the mask and move it onto the head (2+ point pairs)"),
+            ('ALIGN', "Scale, move and turn",
+             "Best fit of size, position and rotation (3+ point pairs)"),
+        ],
+        default='SCALE_MOVE')
     fit_axes: EnumProperty(
         name="Scale",
         items=[

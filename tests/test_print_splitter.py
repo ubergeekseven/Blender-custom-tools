@@ -13,7 +13,7 @@ import traceback
 
 import bpy  # first: the PyPI bpy module provides bmesh/mathutils
 import bmesh  # noqa: E402
-from mathutils import Matrix  # noqa: E402
+from mathutils import Matrix, Vector  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import print_splitter  # noqa: E402
@@ -244,6 +244,73 @@ def test_size_guards():
     assert sizing.resized_after_cut(ctx.scene.objects) == []
     centre_after = box_centre(a)
     assert (centre_after - centre_before).length < 1e-3
+
+
+def _point_fit_scene(mask_matrix):
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    bpy.ops.print_splitter.add_head()
+    head = s.head
+    mask = bpy.data.objects.new("Mask", head.data.copy())
+    ctx.scene.collection.objects.link(mask)
+    mask.matrix_world = mask_matrix
+    s.mask = mask
+    return ctx, s, head, mask
+
+
+def _add_pairs(ctx, head, mask, vert_ids, target='AUTO'):
+    for i in vert_ids:
+        for obj, role in ((mask, 'MASK'), (head, 'HEAD')):
+            ctx.scene.cursor.location = obj.matrix_world @ obj.data.vertices[i].co
+            assert bpy.ops.print_splitter.add_point(
+                target=role if target != 'AUTO' else 'AUTO') == {'FINISHED'}
+
+
+SPOTS = (1, 2000, 3500, 5200)  # crown and three spots round the head
+
+
+def test_point_fit_align():
+    m = Matrix.Translation((300, 40, -20)) @ Matrix.Rotation(math.radians(25), 4, 'Z') \
+        @ Matrix.Rotation(math.radians(10), 4, 'X') @ Matrix.Scale(1.25, 4)
+    ctx, s, head, mask = _point_fit_scene(m)
+    _add_pairs(ctx, head, mask, SPOTS)  # far apart, so Nearest picks right
+    from print_splitter import landmarks
+    assert len(landmarks.points(mask)) == 4 and len(landmarks.points(head)) == 4
+    s.point_fit = 'ALIGN'
+    assert bpy.ops.print_splitter.fit_to_points() == {'FINISHED'}
+    for i in (0, 777, 4000):
+        a = mask.matrix_world @ mask.data.vertices[i].co
+        b = head.matrix_world @ head.data.vertices[i].co
+        assert (a - b).length < 1e-3, (a - b).length
+
+
+def test_point_fit_scale_only_and_move():
+    m = Matrix.Translation((300, 0, 0)) @ Matrix.Scale(0.8, 4)
+    ctx, s, head, mask = _point_fit_scene(m)
+    _add_pairs(ctx, head, mask, SPOTS[:2], target='EXPLICIT')
+    from print_splitter import landmarks
+    mp, _hp = landmarks.pairs(mask, head)
+    centre = Vector(mp.mean(0))
+    s.point_fit = 'SCALE'
+    assert bpy.ops.print_splitter.fit_to_points() == {'FINISHED'}
+    close(mask.matrix_world.to_scale().x, 1.0, 1e-4)
+    mp, hp = landmarks.pairs(mask, head)
+    assert (Vector(mp.mean(0)) - centre).length < 1e-3  # stayed put
+
+    mask.matrix_world = m
+    s.point_fit = 'SCALE_MOVE'
+    assert bpy.ops.print_splitter.fit_to_points() == {'FINISHED'}
+    mp, hp = landmarks.pairs(mask, head)
+    assert landmarks.rms_error(mp, hp) < 1e-3
+
+    s.point_fit = 'ALIGN'  # needs 3 pairs
+    try:
+        bpy.ops.print_splitter.fit_to_points()
+        raise AssertionError("should need 3 pairs")
+    except RuntimeError as e:
+        assert "at least 3" in str(e)
+    assert bpy.ops.print_splitter.clear_points() == {'FINISHED'}
+    assert not landmarks.points(mask) and not landmarks.points(head)
 
 
 def test_plane_misses():

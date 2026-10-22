@@ -1,6 +1,7 @@
 import bpy
 
 from . import head as head_mod
+from . import landmarks
 from . import sizing
 from .ops_split import get_target, pin_markers
 from .units import bu_to_mm
@@ -135,6 +136,31 @@ class PRINTSPLIT_PT_do_split(_Panel, bpy.types.Panel):
         self.layout.operator("print_splitter.cut_face_down", icon='TRIA_DOWN_BAR')
 
 
+def _draw_points(layout, context):
+    s = context.scene.print_splitter
+    box = layout.box()
+    box.label(text="Reference points", icon='EMPTY_SINGLE_ARROW')
+    col = box.column(align=True)
+    col.label(text="Shift + right-click a spot to put the")
+    col.label(text="cursor there, then Add Point. Mark the")
+    col.label(text="same spots on mask and head, in the")
+    col.label(text="same order (e.g. crown, temples, chin).")
+    n_mask = len(landmarks.points(s.mask))
+    n_head = len(landmarks.points(s.head))
+    col = box.column(align=True)
+    col.label(text="Mask %d points, head %d points" % (n_mask, n_head))
+    mp, hp = landmarks.pairs(s.mask, s.head)
+    if len(mp) >= 2:
+        ratio = landmarks.spread_ratio(mp, hp)
+        if ratio is not None:
+            col.label(text="Mask needs scaling to %.1f%%" % (ratio * 100.0))
+    row = box.row(align=True)
+    row.operator("print_splitter.add_point", icon='PIVOT_CURSOR')
+    row.operator("print_splitter.clear_points", text="", icon='X')
+    box.prop(s, "point_fit")
+    box.operator("print_splitter.fit_to_points", icon='CON_SIZELIKE')
+
+
 class PRINTSPLIT_PT_fit(_Panel, bpy.types.Panel):
     bl_label = "Head Fit"
     bl_options = {'DEFAULT_CLOSED'}
@@ -156,6 +182,10 @@ class PRINTSPLIT_PT_fit(_Panel, bpy.types.Panel):
         col = layout.column(align=True)
         col.prop(s, "head")
         col.prop(s, "mask")
+        _draw_points(layout, context)
+
+        col = layout.column(align=True)
+        col.label(text="Clearance")
         col.prop(s, "min_clearance")
         col.prop(s, "fit_range")
         col.operator("print_splitter.check_fit", icon='VIEWZOOM')
