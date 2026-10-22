@@ -88,7 +88,7 @@ def _draw_resized_warning(layout, context):
 
 
 class PRINTSPLIT_PT_pins(_Panel, bpy.types.Panel):
-    bl_label = "Registration Pins"
+    bl_label = "Connectors"
     bl_parent_id = "PRINTSPLIT_PT_split"
 
     def draw_header(self, context):
@@ -98,31 +98,78 @@ class PRINTSPLIT_PT_pins(_Panel, bpy.types.Panel):
         s = context.scene.print_splitter
         layout = self.layout
         layout.active = s.use_pins
+        layout.prop(s, "connector", expand=True)
 
         col = layout.column(align=True)
-        col.prop(s, "pin_diameter")
-        col.prop(s, "pin_length")
-        col.prop(s, "hole_clearance")
-        col.prop(s, "hole_extra_depth")
-        col.prop(s, "pin_chamfer")
-        hole = s.pin_diameter + s.hole_clearance
-        flats = s.pin_diameter * 0.8660254
-        col.label(text="Hole Ø %.2f, %.2f deep each side" %
-                  (hole, s.pin_length * 0.5 + s.hole_extra_depth))
-        col.label(text="Pin across flats %.2f" % flats)
+        if s.connector == 'PINS':
+            col.prop(s, "pin_diameter")
+            col.prop(s, "pin_length")
+            col.prop(s, "hole_clearance")
+            col.prop(s, "hole_extra_depth")
+            col.prop(s, "pin_chamfer")
+            hole = s.pin_diameter + s.hole_clearance
+            col.label(text="Hole Ø %.2f, %.2f deep each side" %
+                      (hole, s.pin_length * 0.5 + s.hole_extra_depth))
+            col.label(text="Pin across flats %.2f" % (s.pin_diameter * 0.8660254))
+        elif s.connector == 'MAGNETS':
+            col.prop(s, "magnet_diameter")
+            col.prop(s, "magnet_thickness")
+            col.prop(s, "magnet_clearance")
+            col.prop(s, "magnet_depth_extra")
+            col.label(text="Pocket Ø %.2f, %.2f deep each side" % (
+                s.magnet_diameter + s.magnet_clearance,
+                s.magnet_thickness + s.magnet_depth_extra))
+            col.label(text="Check polarity before gluing magnets in")
+        else:
+            row = col.row(align=True)
+            row.prop(s, "screw_size", text="")
+            row.prop(s, "screw_anchor", text="")
+            col.prop(s, "screw_clearance")
+            col.prop(s, "screw_head_d")
+            col.prop(s, "screw_anchor_d")
+            col.prop(s, "screw_anchor_depth")
+            col.prop(s, "screw_floor")
+            col.prop(s, "screw_from_b")
 
         col = layout.column(align=True)
-        col.prop(s, "pin_count")
+        col.prop(s, "pin_count", text="Count")
         col.prop(s, "min_wall")
-        col.operator("print_splitter.auto_place_pins", icon='SNAP_FACE_CENTER')
+        col.operator("print_splitter.auto_place_pins", text="Auto Place",
+                     icon='SNAP_FACE_CENTER')
         row = col.row(align=True)
-        row.operator("print_splitter.add_pin", icon='PIVOT_CURSOR')
-        row.operator("print_splitter.clear_pins", icon='X')
-        col.label(text="%d pin markers" % len(pin_markers(s.cut_plane)))
+        row.operator("print_splitter.add_pin", text="Add at Cursor", icon='PIVOT_CURSOR')
+        row.operator("print_splitter.clear_pins", text="Clear", icon='X')
+        col.label(text="%d on this plane" % len(pin_markers(s.cut_plane)))
 
         col = layout.column(align=True)
-        col.prop(s, "pin_layout")
+        if s.connector == 'PINS':
+            col.prop(s, "pin_layout")
         col.prop(s, "hole_segments")
+
+
+class PRINTSPLIT_PT_auto(_Panel, bpy.types.Panel):
+    bl_label = "Auto Split & Hollow"
+    bl_parent_id = "PRINTSPLIT_PT_split"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        s = context.scene.print_splitter
+        layout = self.layout
+        col = layout.column(align=True)
+        row = col.row(align=True)
+        row.label(text="Bed (mm)")
+        row.prop(s, "bed_x", text="")
+        row.prop(s, "bed_y", text="")
+        row.prop(s, "bed_z", text="")
+        col.prop(s, "bed_fill")
+        col.operator("print_splitter.suggest_cuts", icon='MOD_EXPLODE')
+        col.prop(s, "auto_connectors")
+        col.operator("print_splitter.split_all", icon='MOD_BOOLEAN')
+        col = layout.column(align=True)
+        col.label(text="Hollow (after splitting)")
+        col.prop(s, "hollow_wall")
+        col.prop(s, "hollow_drain")
+        col.operator("print_splitter.hollow", icon='MOD_SOLIDIFY')
 
 
 class PRINTSPLIT_PT_do_split(_Panel, bpy.types.Panel):
@@ -371,6 +418,7 @@ classes = (
     PRINTSPLIT_PT_split,
     PRINTSPLIT_PT_pins,
     PRINTSPLIT_PT_do_split,
+    PRINTSPLIT_PT_auto,
 )
 
 

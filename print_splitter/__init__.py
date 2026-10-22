@@ -6,26 +6,29 @@ flat and add registration pins."""
 bl_info = {
     "name": "Print Splitter",
     "author": "ubergeekseven",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (3, 6, 0),
     "location": "View3D > Sidebar > Print Split",
-    "description": "Split models with a plane, cap the cut and add pin registration holes",
+    "description": "Size models to people and objects, split them for 3D printing",
     "category": "Mesh",
 }
 
 if "bpy" in locals():
     import importlib
-    for _m in (units, geometry, head, body, library, props, sizing, ops_split,  # noqa: F821
-               ops_fit, landmarks, measure, eyes, references, export, ui):  # noqa: F821
+    # Dependencies first: a module is reloaded before the ones importing it.
+    for _m in (units, geometry, connectors, head, body, library, props,  # noqa: F821
+               sizing, ops_split, ops_fit, landmarks, measure, eyes,  # noqa: F821
+               references, autosplit, export, ui):  # noqa: F821
         importlib.reload(_m)
 
 import bpy  # noqa: E402,F401
 
-from . import (body, export, eyes, geometry, head, landmarks, library,  # noqa: E402
-               measure, ops_fit, ops_split, props, references, sizing, ui, units)
+from . import (autosplit, body, connectors, export, eyes, geometry, head,  # noqa: E402
+               landmarks, library, measure, ops_fit, ops_split, props, references,
+               sizing, ui, units)
 
 _modules = (props, sizing, ops_split, ops_fit, landmarks, measure, eyes, references,
-            export, ui)
+            autosplit, export, ui)
 
 
 def register():

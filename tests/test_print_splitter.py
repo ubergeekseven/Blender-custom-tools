@@ -674,8 +674,14 @@ def test_panels_draw_for_every_flow():
         _draw_panel("PRINTSPLIT_PT_fit", ctx)
     assert "print_splitter.scale_to_distance" in ops(seen['DISTANCE'])
     assert "print_splitter.scale_to_bed" in ops(seen['BED'])
-    for name in ("PRINTSPLIT_PT_split", "PRINTSPLIT_PT_pins", "PRINTSPLIT_PT_do_split"):
-        _draw_panel(name, ctx)
+    for connector in ('PINS', 'MAGNETS', 'SCREWS'):
+        s.connector = connector
+        for name in ("PRINTSPLIT_PT_split", "PRINTSPLIT_PT_pins", "PRINTSPLIT_PT_do_split",
+                     "PRINTSPLIT_PT_auto"):
+            _draw_panel(name, ctx)
+    log = _draw_panel("PRINTSPLIT_PT_auto", ctx)
+    assert {"print_splitter.suggest_cuts", "print_splitter.split_all",
+            "print_splitter.hollow"} <= ops(log)
 
 
 HEAD_POINTS = {"Crown", "Left eye", "Right eye", "Nose tip", "Chin", "Back of head",
@@ -832,6 +838,127 @@ def test_every_library_object():
         s.library_item = key
         assert bpy.ops.print_splitter.add_library_item() == {'FINISHED'}, key
         assert non_manifold_edges(s.reference) == 0, key
+
+
+def _block(name, x, y, z):
+    obj = _cube(name, 1.0)
+    obj.data.transform(Matrix.Diagonal((x, y, z, 1.0)))
+    bpy.context.view_layer.update()
+    return obj
+
+
+def test_magnet_pockets():
+    ctx, s, obj, plane = setup_split('BOOLEAN')
+    s.connector = 'MAGNETS'
+    s.magnet_diameter, s.magnet_thickness = 6.0, 3.0
+    vol = geo.mesh_volume(obj)
+    bpy.ops.print_splitter.auto_place_pins()
+    n = len([c for c in plane.children if c.get("ps_pin_marker")])
+    assert n >= 3
+    assert bpy.ops.print_splitter.split() == {'FINISHED'}
+    a, b = bpy.data.objects["Mask_A"], bpy.data.objects["Mask_B"]
+    r, depth = (6.0 + s.magnet_clearance) / 2, 3.0 + s.magnet_depth_extra
+    pocket = math.pi * r * r * depth
+    close(geo.mesh_volume(a) + geo.mesh_volume(b), vol - 2 * n * pocket, vol * 0.002)
+    assert not [o for o in bpy.data.objects if "_pin_" in o.name]  # no pins for magnets
+    for part in (a, b):
+        assert non_manifold_edges(part) == 0
+
+
+def test_screws_with_inserts():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    blk = _block("Block", 60.0, 60.0, 100.0)  # z from -50 to 50
+    s.target = blk
+    ctx.view_layer.objects.active = blk
+    blk.select_set(True)
+    bpy.ops.print_splitter.add_cut_plane(axis='Z')
+    s.cut_plane.location = (0, 0, 0)
+    s.connector = 'SCREWS'
+    s.screw_size, s.screw_anchor = 'M3', 'INSERT'
+    assert abs(s.screw_anchor_d - 4.0) < 1e-6 and abs(s.screw_clearance - 3.4) < 1e-6
+    ctx.scene.cursor.location = (0, 0, 0)
+    bpy.ops.print_splitter.add_pin()
+    vol = geo.mesh_volume(blk)
+    try:
+        bpy.ops.print_splitter.split()
+    except RuntimeError:
+        pass
+    a, b = bpy.data.objects["Block_A"], bpy.data.objects["Block_B"]
+    seg = s.hole_segments
+    k = (1.0 / math.cos(math.pi / seg)) ** 2 * seg * math.sin(2 * math.pi / seg) / (2 * math.pi)
+    area = lambda d: math.pi * (d / 2) ** 2 * k  # the circumscribed polygon's area
+    floor = s.screw_floor
+    want_a = 0.5 * vol - area(3.4) * floor - area(s.screw_head_d) * (50.0 - floor)
+    want_b = 0.5 * vol - area(4.0) * s.screw_anchor_depth
+    close(geo.mesh_volume(a), want_a, 1.0)
+    close(geo.mesh_volume(b), want_b, 1.0)
+    for part in (a, b):
+        assert non_manifold_edges(part) == 0
+    from print_splitter import connectors
+    from print_splitter import geometry
+    frame = geometry.PlaneFrame(Matrix.Identity(4))
+    bm = geometry.world_bmesh(ctx, blk)
+    from mathutils.bvhtree import BVHTree
+    _a, _b, notes = connectors.cutters(ctx, frame, [Vector((0, 0, 0))], BVHTree.FromBMesh(bm))
+    bm.free()
+    assert notes[0] == "use M3 x 8 mm screws", notes  # 3 under the head + 5.7 insert
+
+
+def test_suggest_cuts_and_split_all():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    bar = _block("Bar", 600.0, 100.0, 100.0)
+    s.target = bar
+    ctx.view_layer.objects.active = bar
+    bar.select_set(True)
+    vol = geo.mesh_volume(bar)
+    s.pin_count = 2
+    s.pin_diameter, s.pin_length = 5.0, 12.0
+    assert bpy.ops.print_splitter.suggest_cuts() == {'FINISHED'}
+    from print_splitter import autosplit
+    planes = autosplit.cut_planes(ctx.scene)
+    assert len(planes) == 2, len(planes)  # 600 mm on a 256 mm bed: 3 pieces
+    assert bpy.ops.print_splitter.split_all() == {'FINISHED'}
+    pieces = [o for o in bpy.data.objects if o.name.startswith("Bar_part_")]
+    pins = [o for o in bpy.data.objects if o.name.startswith("Bar_pin_")]
+    assert len(pieces) == 3 and len(pins) == 4, ([p.name for p in pieces], len(pins))
+    hole = math.pi * ((5.0 + s.hole_clearance) / 2) ** 2 * (6.0 + s.hole_extra_depth)
+    close(sum(geo.mesh_volume(p) for p in pieces), vol - 4 * 2 * hole, vol * 0.001)
+    for p in pieces:
+        assert non_manifold_edges(p) == 0
+        lo, hi = autosplit._world_extent(p)
+        assert autosplit.fits_bed(hi - lo, (256, 256, 256))
+    # No leftover in-between pieces.
+    assert not [o for o in bpy.data.objects if o.name.startswith("Bar_A") or
+                o.name.startswith("Bar_B")]
+
+
+def test_grid_for_bed():
+    from print_splitter import autosplit
+    assert autosplit.grid_for_bed((200, 200, 200), (256, 256, 256)) == (1, 1, 1)
+    assert sorted(autosplit.grid_for_bed((400, 400, 100), (256, 256, 256))) == [1, 2, 2]
+    # A long thin piece fits lying diagonally? No: boxes only turn by 90 degrees.
+    assert autosplit.grid_for_bed((300, 100, 100), (256, 256, 256)) in [(2, 1, 1)]
+
+
+def test_hollow():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=50.0, segments=96, ring_count=48)
+    ball = ctx.active_object
+    s.hollow_wall, s.hollow_drain = 2.0, 0.0
+    assert bpy.ops.print_splitter.hollow() == {'FINISHED'}
+    want = 4.0 / 3.0 * math.pi * (50.0 ** 3 - 48.0 ** 3)
+    close(geo.mesh_volume(ball), want, want * 0.01)
+    assert non_manifold_edges(ball) == 0
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=50.0, segments=96, ring_count=48,
+                                         location=(200, 0, 0))
+    ball2 = ctx.active_object
+    s.hollow_drain = 5.0
+    bpy.ops.print_splitter.hollow()
+    assert geo.mesh_volume(ball2) < geo.mesh_volume(ball)
+    assert non_manifold_edges(ball2) == 0
 
 
 def test_plane_misses():

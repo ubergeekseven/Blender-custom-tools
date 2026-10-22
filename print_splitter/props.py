@@ -15,6 +15,12 @@ def _update_previews(self, context):
     ops_split.refresh_hole_previews(context)
 
 
+def _update_screw(self, context):
+    from . import connectors
+    connectors.apply_screw_defaults(self)
+    _update_previews(self, context)
+
+
 class PrintSplitterSettings(bpy.types.PropertyGroup):
     units: EnumProperty(
         name="Units",
@@ -55,6 +61,55 @@ class PrintSplitterSettings(bpy.types.PropertyGroup):
     separate: FloatProperty(
         name="Pull Apart (mm)", min=0.0, soft_max=200.0, default=0.0,
         description="Move the two parts apart along the cut normal after splitting")
+
+    # ---- connectors --------------------------------------------------------
+    connector: EnumProperty(
+        name="Join With",
+        items=[('PINS', "Pins", "Hexagonal pins in round holes, glued"),
+               ('MAGNETS', "Magnets", "A pocket for a disc magnet on each side, so the "
+                                      "pieces come apart"),
+               ('SCREWS', "Screws", "A screw through piece A into a heat-set insert or "
+                                    "tapped hole in piece B")],
+        default='PINS', update=_update_previews)
+    magnet_diameter: FloatProperty(name="Magnet Ø (mm)", min=1.0, soft_max=30.0, default=6.0,
+                                   update=_update_previews)
+    magnet_thickness: FloatProperty(name="Magnet Thickness (mm)", min=0.5, soft_max=10.0,
+                                    default=3.0, update=_update_previews)
+    magnet_clearance: FloatProperty(
+        name="Clearance (mm)", min=-0.5, soft_max=1.0, default=0.2, update=_update_previews,
+        description="Added to the pocket diameter. Around 0.1-0.2 for a press fit")
+    magnet_depth_extra: FloatProperty(
+        name="Extra Depth (mm)", min=0.0, soft_max=2.0, default=0.2, update=_update_previews,
+        description="Pocket depth beyond the magnet's thickness, for glue")
+    screw_size: EnumProperty(
+        name="Screw", items=[(k, k, "") for k in ('M2', 'M2.5', 'M3', 'M4', 'M5')],
+        default='M3', update=_update_screw)
+    screw_anchor: EnumProperty(
+        name="Into",
+        items=[('INSERT', "Heat-set insert", "A hole sized for a brass insert"),
+               ('TAP', "Tapped plastic", "A pilot hole the screw cuts its own thread in")],
+        default='INSERT', update=_update_screw)
+    screw_clearance: FloatProperty(name="Clearance Hole Ø (mm)", min=0.5, soft_max=10.0,
+                                   default=3.4, update=_update_previews)
+    screw_head_d: FloatProperty(name="Head Recess Ø (mm)", min=1.0, soft_max=15.0, default=5.9,
+                                description="Counterbore for the screw head")
+    screw_anchor_d: FloatProperty(name="Insert/Pilot Hole Ø (mm)", min=0.5, soft_max=10.0,
+                                  default=4.0, update=_update_previews)
+    screw_anchor_depth: FloatProperty(name="Insert/Pilot Depth (mm)", min=1.0, soft_max=30.0,
+                                      default=6.7, update=_update_previews)
+    screw_floor: FloatProperty(
+        name="Under Head (mm)", min=0.5, soft_max=20.0, default=3.0,
+        description="Material left between the screw head and the cut")
+    screw_from_b: BoolProperty(name="Head on Piece B", default=False,
+                               description="Put the screw heads on piece B instead of A")
+    auto_connectors: BoolProperty(
+        name="Auto Place Connectors", default=True,
+        description="When splitting at all planes, place connectors on every cut")
+    hollow_wall: FloatProperty(name="Wall (mm)", min=0.4, soft_max=10.0, default=2.0,
+                               description="Wall thickness left when hollowing")
+    hollow_drain: FloatProperty(
+        name="Drain Hole Ø (mm)", min=0.0, soft_max=15.0, default=0.0,
+        description="Hole through the lowest point, e.g. for resin printing. 0: none")
 
     # ---- registration pins -------------------------------------------------
     use_pins: BoolProperty(name="Registration Pins", default=True)
