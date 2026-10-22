@@ -2,7 +2,7 @@ import bpy
 
 from . import head as head_mod
 from . import landmarks
-from . import measure
+from . import body, library, measure, references
 from . import sizing
 from .ops_split import get_target, pin_markers
 from .units import bu_to_mm
@@ -154,6 +154,10 @@ ROLES = {
 
 
 def _roles(s):
+    if s.flow == 'BODY':
+        return references.BODY_ROLES[s.body_part]
+    if s.flow == 'OBJECT':
+        return ("Reference", "Model")
     return ROLES.get(s.flow, ("Reference", "Item"))
 
 
@@ -239,8 +243,52 @@ def _draw_head_reference(layout, context):
     col.prop(s, "head_height")
     col.label(text="≈ %.0f mm around (tape check)"
               % head_mod.head_circumference(s.head_width, s.head_length))
+    row = col.row(align=True)
+    row.prop(s, "hat_system", text="")
+    row.prop(s, "hat_size")
+    row.operator("print_splitter.head_from_hat_size", text="", icon='CHECKMARK')
+    col.prop(s, "head_ipd")
+    col.prop(s, "head_neck")
     col.operator("print_splitter.add_head", icon='USER')
     col.operator("print_splitter.scale_to_measurements", icon='FULLSCREEN_ENTER')
+
+
+BODY_FIELDS = {
+    'HAND': ("hand_length", "hand_breadth"), 'GRIP': ("grip_diameter", "grip_length"),
+    'ARM': ("wrist_circ", "forearm_circ", "forearm_length"), 'FINGER': (),
+    'FOOT': ("foot_length", "foot_width"),
+    'TORSO': ("chest_circ", "waist_circ", "shoulder_width", "torso_length", "neck_circ"),
+    'FIGURE': ("figure_height",),
+}
+
+
+def _draw_body_reference(layout, context):
+    s = context.scene.print_splitter
+    col = layout.column(align=True)
+    col.prop(s, "body_part", text="")
+    if s.body_part in ('HAND', 'FOOT'):
+        col.prop(s, "body_side", expand=True)
+    for field in BODY_FIELDS[s.body_part]:
+        col.prop(s, field)
+    if s.body_part == 'HAND':
+        row = col.row(align=True)
+        row.prop(s, "glove_size")
+        row.operator("print_splitter.hand_from_glove_size", text="", icon='CHECKMARK')
+    if s.body_part == 'FINGER':
+        col.prop(s, "ring_system", text="")
+        col.prop(s, "ring_size")
+        d = body.ring_size_to_diameter(s.ring_system, s.ring_size)
+        col.label(text="Inside Ø %.2f mm" % d)
+    col.operator("print_splitter.add_body_part",
+                 text="Add %s" % references.BODY_NAMES[s.body_part], icon='ADD')
+
+
+def _draw_object_reference(layout, context):
+    s = context.scene.print_splitter
+    col = layout.column(align=True)
+    col.prop(s, "library_item", text="")
+    col.label(text=library.CATALOGUE[s.library_item][1])
+    col.operator("print_splitter.add_library_item", icon='ADD')
 
 
 def _draw_import(layout, context, use_as='REFERENCE'):
@@ -265,6 +313,10 @@ def _draw_match(layout, context, clearance=True):
     col.operator("print_splitter.check_fit", icon='VIEWZOOM')
     col.prop(s, "fit_axes")
     col.operator("print_splitter.scale_mask_to_fit", icon='FULLSCREEN_EXIT')
+    if s.flow == 'HEAD':
+        col = layout.column(align=True)
+        col.label(text="Eyes")
+        col.operator("print_splitter.check_eyes", icon='HIDE_OFF')
 
 
 class PRINTSPLIT_PT_fit(_Panel, bpy.types.Panel):
@@ -284,6 +336,12 @@ class PRINTSPLIT_PT_fit(_Panel, bpy.types.Panel):
                 box.label(text="Use a head scan or model instead:")
                 _draw_import(box, context)
                 _draw_measure(box, context, "Calibrate it")
+            _draw_match(layout, context)
+        elif s.flow in ('BODY', 'OBJECT'):
+            if s.flow == 'BODY':
+                _draw_body_reference(layout, context)
+            else:
+                _draw_object_reference(layout, context)
             _draw_match(layout, context)
         elif s.flow == 'DISTANCE':
             layout.label(text="Bring in a model, scan or photo:")

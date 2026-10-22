@@ -2,6 +2,8 @@ import bpy
 from bpy.props import (BoolProperty, EnumProperty, FloatProperty, IntProperty,
                        PointerProperty)
 
+from . import library
+
 
 def _is_mesh(_self, obj):
     return obj.type == 'MESH'
@@ -113,11 +115,83 @@ class PrintSplitterSettings(bpy.types.PropertyGroup):
     head_height: FloatProperty(
         name="Height (mm)", min=50.0, soft_max=350.0, default=225.0,
         description="Chin to the top of the head")
+    head_ipd: FloatProperty(
+        name="Pupil Distance (mm)", min=30.0, soft_max=85.0, default=63.0,
+        description="Centre of one pupil to the other, looking into the distance. "
+                    "Adults are about 54-74 mm, children often 48-56")
+    head_neck: BoolProperty(name="Neck", default=True,
+                            description="Add a neck under the head")
+    hat_system: EnumProperty(
+        name="Hat Size",
+        items=[('US', "US/UK", "Hat sizes like 7 1/4 (enter 7.25)"),
+               ('EU', "EU (cm)", "Hat sizes like 58: the circumference in cm")],
+        default='US')
+    hat_size: FloatProperty(name="Size", min=1.0, soft_max=70.0, default=7.25,
+                            description="The hat size to set the head from")
+    # ---- body parts --------------------------------------------------------
+    body_part: EnumProperty(
+        name="Body Part",
+        items=[('HAND', "Hand", "Gloves, gauntlets, claws"),
+               ('GRIP', "Grip", "Handles for props, tools and swords"),
+               ('ARM', "Wrist and forearm", "Bracers, cuffs, watch bands"),
+               ('FINGER', "Finger", "Rings"),
+               ('FOOT', "Foot", "Shoe parts, insoles, costume feet"),
+               ('TORSO', "Torso", "Armour, chest pieces"),
+               ('FIGURE', "Whole body", "Size props against a person")],
+        default='HAND')
+    body_side: EnumProperty(name="Side", items=[('RIGHT', "Right", ""), ('LEFT', "Left", "")],
+                            default='RIGHT')
+    hand_length: FloatProperty(
+        name="Hand Length (mm)", min=50.0, soft_max=260.0, default=180.0,
+        description="Wrist crease to the tip of the middle finger")
+    hand_breadth: FloatProperty(
+        name="Hand Width (mm)", min=30.0, soft_max=130.0, default=84.0,
+        description="Across the knuckles, thumb not included")
+    glove_size: FloatProperty(
+        name="Glove Size", min=4.0, soft_max=13.0, default=8.5,
+        description="Glove size: the hand's circumference round the knuckles in inches")
+    grip_diameter: FloatProperty(name="Grip Diameter (mm)", min=5.0, soft_max=80.0,
+                                 default=35.0, description="Comfortable handle thickness")
+    grip_length: FloatProperty(name="Grip Length (mm)", min=10.0, soft_max=400.0,
+                               default=100.0)
+    wrist_circ: FloatProperty(name="Wrist Around (mm)", min=50.0, soft_max=300.0,
+                              default=165.0, description="Circumference at the wrist bone")
+    forearm_circ: FloatProperty(name="Forearm Around (mm)", min=80.0, soft_max=450.0,
+                                default=260.0, description="Circumference at the widest point")
+    forearm_length: FloatProperty(name="Forearm Length (mm)", min=80.0, soft_max=450.0,
+                                  default=260.0, description="Wrist to elbow")
+    ring_system: EnumProperty(
+        name="Ring Size",
+        items=[('US', "US/Canada", "Sizes like 7 or 7.5"),
+               ('EU', "EU / ISO", "The inside circumference in mm, like 54"),
+               ('DIAMETER', "Diameter (mm)", "The inside diameter")],
+        default='US')
+    ring_size: FloatProperty(name="Size", min=0.0, soft_max=80.0, default=7.0)
+    foot_length: FloatProperty(name="Foot Length (mm)", min=60.0, soft_max=350.0,
+                               default=260.0, description="Heel to the longest toe")
+    foot_width: FloatProperty(name="Foot Width (mm)", min=30.0, soft_max=150.0,
+                              default=100.0, description="Widest point, across the ball")
+    chest_circ: FloatProperty(name="Chest Around (mm)", min=300.0, soft_max=1600.0,
+                              default=960.0)
+    waist_circ: FloatProperty(name="Waist Around (mm)", min=300.0, soft_max=1600.0,
+                              default=820.0)
+    shoulder_width: FloatProperty(name="Shoulder Width (mm)", min=150.0, soft_max=600.0,
+                                  default=400.0, description="Shoulder tip to shoulder tip")
+    torso_length: FloatProperty(name="Torso Length (mm)", min=150.0, soft_max=800.0,
+                                default=450.0, description="Waist to the base of the neck")
+    neck_circ: FloatProperty(name="Neck Around (mm)", min=150.0, soft_max=600.0, default=380.0)
+    figure_height: FloatProperty(name="Height (mm)", min=10.0, soft_max=2500.0, default=1700.0)
+    # ---- real-world objects ------------------------------------------------
+    library_item: EnumProperty(name="Object", items=library.enum_items(), default='CARD')
     flow: EnumProperty(
         name="Sizing",
         description="What you're sizing. The panel shows the tools for it",
         items=[
             ('HEAD', "Head: mask, helmet, hat", "Fit something worn on the head"),
+            ('BODY', "Body part: glove, bracer, ring, armour",
+             "Fit something worn on the body, or size a prop to a person"),
+            ('OBJECT', "Real-world object: card, battery, board",
+             "Size against something with known measurements"),
             ('DISTANCE', "Known distance: scan, photo, any model",
              "Scale anything from two points and the real distance between them"),
             ('BED', "Fit the print bed", "Scale to fill the printer's build volume"),

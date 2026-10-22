@@ -251,6 +251,8 @@ def _point_fit_scene(mask_matrix):
     s = ctx.scene.print_splitter
     bpy.ops.print_splitter.add_head()
     head = s.reference
+    for child in list(head.children):  # these tests place their own points
+        bpy.data.objects.remove(child)
     mask = bpy.data.objects.new("Mask", head.data.copy())
     ctx.scene.collection.objects.link(mask)
     mask.matrix_world = mask_matrix
@@ -655,7 +657,7 @@ def test_panels_draw_for_every_flow():
     bpy.ops.print_splitter.add_head()
     s.item = _cube("Mask", 200.0)
     _cursor((0, 0, 112))
-    bpy.ops.print_splitter.add_point(target='REFERENCE', name="Crown")
+    bpy.ops.print_splitter.add_point(target='ITEM')  # takes the head's first name
     s.show_calibrate = True
     seen = {}
     for flow in [i.identifier for i in s.bl_rna.properties["flow"].enum_items]:
@@ -664,10 +666,172 @@ def test_panels_draw_for_every_flow():
     ops = lambda log: {a for a, _t in log if a.startswith("print_splitter.")}
     assert "print_splitter.fit_to_points" in ops(seen['HEAD'])
     assert ("print_splitter.add_point", "Mark on Mask") in seen['HEAD']
+    assert "print_splitter.check_eyes" in ops(seen['HEAD'])
+    assert "print_splitter.add_body_part" in ops(seen['BODY'])
+    assert "print_splitter.add_library_item" in ops(seen['OBJECT'])
+    for part in [i.identifier for i in s.bl_rna.properties["body_part"].enum_items]:
+        s.flow, s.body_part = 'BODY', part
+        _draw_panel("PRINTSPLIT_PT_fit", ctx)
     assert "print_splitter.scale_to_distance" in ops(seen['DISTANCE'])
     assert "print_splitter.scale_to_bed" in ops(seen['BED'])
     for name in ("PRINTSPLIT_PT_split", "PRINTSPLIT_PT_pins", "PRINTSPLIT_PT_do_split"):
         _draw_panel(name, ctx)
+
+
+HEAD_POINTS = {"Crown", "Left eye", "Right eye", "Nose tip", "Chin", "Back of head",
+               "Left ear", "Right ear"}
+
+
+def test_head_v2_points_eyes_and_neck():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    s.head_ipd = 58.0
+    assert bpy.ops.print_splitter.add_head() == {'FINISHED'}
+    head = s.reference
+    from print_splitter import landmarks
+    assert set(landmarks.labels(head)) == HEAD_POINTS
+    pts = {landmarks.label(p): p.matrix_world.translation for p in landmarks.points(head)}
+    close((pts["Left eye"] - pts["Right eye"]).length, 58.0, 0.05)
+    assert pts["Left eye"].x > 0 > pts["Right eye"].x  # facing -Y, its left is +X
+    assert pts["Nose tip"].y < pts["Left eye"].y < 0 < pts["Back of head"].y
+    close(pts["Crown"].z, s.head_height / 2, 1e-3)
+    assert pts["Left ear"].x > s.head_width / 2  # ears stick out past the skull
+    names = {c.name for c in head.children}
+    assert {"Left eyeball", "Right eyeball", "Neck"} <= names
+    assert non_manifold_edges(head) == 0
+    # Clear Points keeps a reference's own points.
+    bpy.ops.print_splitter.clear_points()
+    assert set(landmarks.labels(head)) == HEAD_POINTS
+
+
+def test_hat_size():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    ratio = s.head_length / s.head_width
+    s.hat_system, s.hat_size = 'US', 7.25
+    assert bpy.ops.print_splitter.head_from_hat_size() == {'FINISHED'}
+    from print_splitter import head as head_mod
+    close(head_mod.head_circumference(s.head_width, s.head_length), 7.25 * math.pi * 25.4, 0.01)
+    close(s.head_length / s.head_width, ratio, 1e-6)
+    s.hat_system, s.hat_size = 'EU', 56
+    bpy.ops.print_splitter.head_from_hat_size()
+    close(head_mod.head_circumference(s.head_width, s.head_length), 560.0, 0.01)
+
+
+def _helmet(ctx, head, holes):
+    """Hollow ball round the head, with eye holes at the head's pupils."""
+    from print_splitter import landmarks
+    helmet = shell("Helmet", 160.0, 150.0)
+    if holes:
+        pts = {landmarks.label(p): p.matrix_world.translation for p in landmarks.points(head)}
+        cutters = []
+        for side in ("Left", "Right"):
+            me = geo.cylinder_mesh("hole", 16.0, 60.0)
+            cyl = bpy.data.objects.new("hole", me)
+            cyl.matrix_world = Matrix.Translation((pts["%s eye" % side].x, -150.0,
+                                                   pts["%s eye" % side].z)) \
+                @ Matrix.Rotation(math.radians(90), 4, 'X')
+            ctx.scene.collection.objects.link(cyl)
+            cutters.append(('DIFFERENCE', cyl))
+        geo.apply_booleans(ctx, helmet, cutters)
+        for _op, c in cutters:
+            bpy.data.objects.remove(c)
+    return helmet
+
+
+def test_eye_check():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    bpy.ops.print_splitter.add_head()
+    head = s.reference
+    from print_splitter import eyes
+    s.item = _helmet(ctx, head, holes=False)
+    view = eyes.eye_view(ctx, head, s.item)
+    assert not view["Left"]["ahead"] and view["Left"]["out"] == 0
+
+    s.item = _helmet(ctx, head, holes=True)
+    view = eyes.eye_view(ctx, head, s.item)
+    for side in ("Left", "Right"):
+        v = view[side]
+        assert v["ahead"] and not v["inside"]
+        # The 16 mm radius hole's outer rim limits the view.
+        p = v["pupil"]
+        rim = math.sqrt(160.0 ** 2 - p.x ** 2 - p.z ** 2) - abs(p.y)
+        want = math.degrees(math.atan(16.0 / rim))
+        for key in ("out", "in", "up", "down"):
+            assert abs(v[key] - want) <= 1.5, (side, key, v[key], want)
+    # Mark the left hole's centre 5 mm outward of where it really is.
+    pupil = view["Left"]["pupil"]
+    _cursor((pupil.x + 5.0, -150.0, pupil.z))
+    bpy.ops.print_splitter.add_point(target='ITEM', name="Left eye")
+    view = eyes.eye_view(ctx, head, s.item)
+    ox, oy = view["Left"]["offset"]
+    close(ox, 5.0, 1e-3)
+    close(oy, 0.0, 1e-3)
+    assert bpy.ops.print_splitter.check_eyes() == {'FINISHED'}
+    assert any(o.get("ps_sight_lines") for o in bpy.data.objects)
+
+
+def test_body_parts():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    from print_splitter import landmarks
+    for part in [i.identifier for i in s.bl_rna.properties["body_part"].enum_items]:
+        s.body_part = part
+        assert bpy.ops.print_splitter.add_body_part() == {'FINISHED'}, part
+        obj = s.reference
+        assert non_manifold_edges(obj) == 0, part
+        assert geo.mesh_volume(obj) > 0.0, part
+        assert len(landmarks.points(obj)) >= 2, part
+    # Ring size: US 7 is 17.32 mm inside.
+    s.body_part, s.ring_system, s.ring_size = 'FINGER', 'US', 7.0
+    bpy.ops.print_splitter.add_body_part()
+    ctx.view_layer.update()
+    close(s.reference.dimensions.x, 17.32, 0.01)
+    s.glove_size = 9.0
+    bpy.ops.print_splitter.hand_from_glove_size()
+    close(s.hand_breadth, 9.0 * 25.4 / 2.5, 1e-4)
+    s.body_part, s.figure_height = 'FIGURE', 1600.0
+    bpy.ops.print_splitter.add_body_part()
+    ctx.view_layer.update()
+    close(s.reference.dimensions.z, 1600.0, 0.5)
+
+
+def test_library_card_calibrates_a_photo():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    s.library_item = 'CARD'
+    assert bpy.ops.print_splitter.add_library_item() == {'FINISHED'}
+    card = s.reference
+    ctx.view_layer.update()
+    close(card.dimensions.x, 85.60, 1e-3)
+    close(card.dimensions.y, 53.98, 1e-3)
+    # A "photo" in which the card is 40 mm wide, lying flat elsewhere.
+    photo = _cube("Photo", 1.0, (500, 0, 0))
+    photo.scale = (200.0, 150.0, 0.01)
+    ctx.view_layer.update()
+    s.item = photo
+    k = 40.0 / 85.6
+    for name, (x, y) in (("Corner 1", (-42.8, 26.99)), ("Corner 2", (42.8, 26.99)),
+                         ("Corner 3", (42.8, -26.99)), ("Corner 4", (-42.8, -26.99))):
+        _cursor((500 + 10 + x * k, 20 + y * k, 0))
+        bpy.ops.print_splitter.add_point(target='ITEM', name=name)
+    s.point_fit = 'ALIGN'
+    assert bpy.ops.print_splitter.fit_to_points() == {'FINISHED'}
+    close(photo.matrix_world.to_scale().x, 200.0 / k, 0.01)
+    from print_splitter import landmarks
+    ip, rp = landmarks.pairs(photo, card)
+    assert landmarks.rms_error(ip, rp) < 1e-3
+
+
+def test_every_library_object():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    from print_splitter import library
+    for key in library.CATALOGUE:
+        s.library_item = key
+        assert bpy.ops.print_splitter.add_library_item() == {'FINISHED'}, key
+        assert non_manifold_edges(s.reference) == 0, key
 
 
 def test_plane_misses():

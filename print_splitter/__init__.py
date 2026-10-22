@@ -1,5 +1,6 @@
-"""Print Splitter: cut models with a plane for 3D printing, fill the cut flat,
-add hexagonal registration pins and check how a mask fits a head."""
+"""Print Splitter: size models against heads, body parts, real-world objects
+or known distances, then cut them with planes for 3D printing, fill the cuts
+flat and add registration pins."""
 
 # Read by Blender 4.1 and older; 4.2+ uses blender_manifest.toml.
 bl_info = {
@@ -14,16 +15,17 @@ bl_info = {
 
 if "bpy" in locals():
     import importlib
-    for _m in (units, geometry, head, props, sizing, ops_split, ops_fit, landmarks,  # noqa: F821
-               measure, export, ui):  # noqa: F821
+    for _m in (units, geometry, head, body, library, props, sizing, ops_split,  # noqa: F821
+               ops_fit, landmarks, measure, eyes, references, export, ui):  # noqa: F821
         importlib.reload(_m)
 
 import bpy  # noqa: E402,F401
 
-from . import (export, geometry, head, landmarks, measure, ops_fit, ops_split,  # noqa: E402
-               props, sizing, ui, units)
+from . import (body, export, eyes, geometry, head, landmarks, library,  # noqa: E402
+               measure, ops_fit, ops_split, props, references, sizing, ui, units)
 
-_modules = (props, sizing, ops_split, ops_fit, landmarks, measure, export, ui)
+_modules = (props, sizing, ops_split, ops_fit, landmarks, measure, eyes, references,
+            export, ui)
 
 
 def register():

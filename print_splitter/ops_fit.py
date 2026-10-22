@@ -1,5 +1,6 @@
 """Head proxy, scale-to-measurement and mask fit operators."""
 
+import bmesh
 import bpy
 import numpy as np
 from bpy.props import EnumProperty
@@ -123,8 +124,45 @@ def _reference_and_item(op, context):
     return s.reference, s.item
 
 
+def link_new(context, obj, parent=None):
+    context.collection.objects.link(obj)
+    if parent is not None:
+        obj.parent = parent
+
+
+def add_builtin_points(context, obj, points):
+    """Named points that come with a built-in reference, in object space."""
+    from . import landmarks
+    for name, co in points.items():
+        p = landmarks.add_point(context, obj, obj.matrix_world @ Vector(co), name)
+        p["ps_builtin"] = True
+
+
+def make_reference(context, name, bm, points=None, smooth=True):
+    """Link a built-in reference mesh at the 3D cursor, select it and make it
+    the reference."""
+    me = geo.mesh_from_bmesh(name, bm)
+    if smooth:
+        for poly in me.polygons:
+            poly.use_smooth = True
+    obj = bpy.data.objects.new(name, me)
+    obj.location = context.scene.cursor.location
+    link_new(context, obj)
+    context.view_layer.update()
+    if points:
+        add_builtin_points(context, obj, points)
+    context.scene.print_splitter.reference = obj
+    for o in context.selected_objects:
+        o.select_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
+    return obj
+
+
 class PRINTSPLIT_OT_add_head(bpy.types.Operator):
-    """Add a generic head sized to the measurements, at the 3D cursor"""
+    """Add a generic head sized to the measurements at the 3D cursor, with
+    eyes set by the pupil distance and named points (crown, eyes, nose tip,
+    chin, ears, back of head) ready to match on a mask"""
     bl_idname = "print_splitter.add_head"
     bl_label = "Add Head From Measurements"
     bl_options = {'REGISTER', 'UNDO'}
@@ -132,18 +170,42 @@ class PRINTSPLIT_OT_add_head(bpy.types.Operator):
     def execute(self, context):
         s = context.scene.print_splitter
         mm = mm_to_bu(context)
-        bm = head_mod.head_bmesh(s.head_width * mm, s.head_length * mm, s.head_height * mm)
-        me = geo.mesh_from_bmesh("Head", bm)
-        for poly in me.polygons:
-            poly.use_smooth = True
-        obj = bpy.data.objects.new("Head", me)
-        obj.location = context.scene.cursor.location
-        context.collection.objects.link(obj)
-        s.reference = obj
-        for o in context.selected_objects:
-            o.select_set(False)
-        obj.select_set(True)
-        context.view_layer.objects.active = obj
+        w, l, h = s.head_width * mm, s.head_length * mm, s.head_height * mm
+        ipd = s.head_ipd * mm
+        if ipd * 0.5 >= w * 0.4:
+            self.report({'ERROR'}, "Pupil distance is too wide for this head width")
+            return {'CANCELLED'}
+        eye_r = head_mod.EYEBALL_MM * mm
+        points, eyes = head_mod.head_features(w, l, h, ipd, eye_r)
+        obj = make_reference(context, "Head", head_mod.head_bmesh(w, l, h, ipd), points)
+        for side, centre in eyes.items():
+            bm = bmesh.new()
+            bmesh.ops.create_uvsphere(bm, u_segments=24, v_segments=16, radius=eye_r,
+                                      matrix=Matrix.Translation(centre))
+            eye = bpy.data.objects.new("%s eyeball" % side, geo.mesh_from_bmesh("Eyeball", bm))
+            link_new(context, eye, obj)
+            for poly in eye.data.polygons:
+                poly.use_smooth = True
+        if s.head_neck:
+            neck = bpy.data.objects.new("Neck", geo.mesh_from_bmesh(
+                "Neck", head_mod.neck_bmesh(w, l, h)))
+            link_new(context, neck, obj)
+        return {'FINISHED'}
+
+
+class PRINTSPLIT_OT_head_from_hat_size(bpy.types.Operator):
+    """Set head width and length from a hat size, keeping their proportions"""
+    bl_idname = "print_splitter.head_from_hat_size"
+    bl_label = "Use Hat Size"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        s = context.scene.print_splitter
+        circ = head_mod.hat_size_to_circumference(s.hat_system, s.hat_size)
+        s.head_width, s.head_length = head_mod.head_from_circumference(
+            s.head_width, s.head_length, circ)
+        self.report({'INFO'}, "Head %.0f mm around: width %.1f, length %.1f mm"
+                    % (circ, s.head_width, s.head_length))
         return {'FINISHED'}
 
 
@@ -276,6 +338,7 @@ class PRINTSPLIT_OT_scale_mask_to_fit(bpy.types.Operator):
 
 classes = (
     PRINTSPLIT_OT_add_head,
+    PRINTSPLIT_OT_head_from_hat_size,
     PRINTSPLIT_OT_scale_to_measurements,
     PRINTSPLIT_OT_check_fit,
     PRINTSPLIT_OT_scale_mask_to_fit,
