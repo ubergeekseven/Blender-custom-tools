@@ -250,17 +250,17 @@ def _point_fit_scene(mask_matrix):
     ctx = reset()
     s = ctx.scene.print_splitter
     bpy.ops.print_splitter.add_head()
-    head = s.head
+    head = s.reference
     mask = bpy.data.objects.new("Mask", head.data.copy())
     ctx.scene.collection.objects.link(mask)
     mask.matrix_world = mask_matrix
-    s.mask = mask
+    s.item = mask
     return ctx, s, head, mask
 
 
 def _add_pairs(ctx, head, mask, vert_ids, target='AUTO'):
     for i in vert_ids:
-        for obj, role in ((mask, 'MASK'), (head, 'HEAD')):
+        for obj, role in ((mask, 'ITEM'), (head, 'REFERENCE')):
             ctx.scene.cursor.location = obj.matrix_world @ obj.data.vertices[i].co
             assert bpy.ops.print_splitter.add_point(
                 target=role if target != 'AUTO' else 'AUTO') == {'FINISHED'}
@@ -352,7 +352,7 @@ def _export_head(tmpdir, units, system, scale_length):
     ctx.scene.unit_settings.system = system
     ctx.scene.unit_settings.scale_length = scale_length
     bpy.ops.print_splitter.add_head()
-    head = s.head
+    head = s.reference
     head.rotation_euler = (0.3, 0.0, 0.5)  # export uses the world placement
     ctx.view_layer.update()
     from print_splitter.units import bu_to_mm
@@ -417,6 +417,259 @@ def test_export_pieces_and_pins():
         assert "Select the pieces" in str(e)
 
 
+def _cube(name, size, location=(0, 0, 0)):
+    bm = bmesh.new()
+    bmesh.ops.create_cube(bm, size=size)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    obj = bpy.data.objects.new(name, me)
+    obj.location = location
+    bpy.context.scene.collection.objects.link(obj)
+    bpy.context.view_layer.update()
+    return obj
+
+
+def _cursor(p):
+    bpy.context.scene.cursor.location = p
+
+
+def test_named_points_pair_by_name():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    ref = _cube("Ref", 100.0)
+    item = _cube("Item", 80.0, (300, 0, 0))
+    s.reference, s.item = ref, item
+    from print_splitter import landmarks
+    for name, p in (("Crown", (0, 0, 50)), ("Left eye", (-30, -50, 0)),
+                    ("Right eye", (30, -50, 0))):
+        _cursor(p)
+        assert bpy.ops.print_splitter.add_point(target='REFERENCE', name=name) == {'FINISHED'}
+    # Unnamed points on the item take the next reference name: mark in a
+    # different order by naming one explicitly first.
+    _cursor((300 + 24, -40, 0))
+    bpy.ops.print_splitter.add_point(target='ITEM', name="Right eye")
+    _cursor((300, 0, 40))
+    bpy.ops.print_splitter.add_point(target='ITEM')
+    _cursor((300 - 24, -40, 0))
+    bpy.ops.print_splitter.add_point(target='ITEM')
+    assert landmarks.labels(item) == ["Right eye", "Crown", "Left eye"]
+    assert landmarks.matched_labels(item, ref) == ["Crown", "Left eye", "Right eye"]
+    ip, rp = landmarks.pairs(item, ref)
+    close(landmarks.spread_ratio(ip, rp), 100.0 / 80.0, 1e-6)
+    # Duplicate names are refused; hand-placed points are numbered.
+    try:
+        bpy.ops.print_splitter.add_point(target='ITEM', name="Crown")
+        raise AssertionError("duplicate accepted")
+    except RuntimeError:
+        pass
+    bpy.ops.print_splitter.add_point(target='REFERENCE')
+    bpy.ops.print_splitter.add_point(target='REFERENCE')
+    assert landmarks.labels(ref)[-2:] == ["Point 1", "Point 2"]
+    bpy.ops.print_splitter.remove_point(target='REFERENCE', name="Point 1")
+    bpy.ops.print_splitter.add_point(target='REFERENCE')
+    assert sorted(landmarks.labels(ref)[-2:]) == ["Point 1", "Point 2"]
+
+    s.point_fit = 'SCALE_MOVE'
+    assert bpy.ops.print_splitter.fit_to_points() == {'FINISHED'}
+    ip, rp = landmarks.pairs(item, ref)
+    assert landmarks.rms_error(ip, rp) < 1e-3
+
+
+def test_point_at_edit_mode_selection():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    ref = _cube("Ref", 100.0)
+    s.reference = ref
+    ctx.view_layer.objects.active = ref
+    ref.select_set(True)
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(ref.data)
+    for v in bm.verts:
+        v.select = v.co.z > 0  # top face: centre at (0, 0, 50)
+    bmesh.update_edit_mesh(ref.data)
+    assert bpy.ops.print_splitter.add_point(target='AUTO', name="Top") == {'FINISHED'}
+    bpy.ops.object.mode_set(mode='OBJECT')
+    from print_splitter import landmarks
+    p = landmarks.points(ref)[0].matrix_world.translation
+    assert (p - Vector((0, 0, 50))).length < 1e-4, p
+
+
+def test_stretch_per_axis():
+    m = Matrix.Translation((300, 0, 0)) @ Matrix.Diagonal((1.2, 0.9, 1.1, 1.0))
+    ctx, s, head, mask = _point_fit_scene(m)
+    _add_pairs(ctx, head, mask, (1, 700, 2000, 3500, 4400, 5200))
+    s.point_fit = 'AXES'
+    assert bpy.ops.print_splitter.fit_to_points() == {'FINISHED'}
+    sc = mask.matrix_world.to_scale()
+    for got in sc:
+        close(got, 1.0, 1e-3)
+
+
+def test_known_distance_uniform_and_along():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    cube = _cube("Box", 20.0)
+    ctx.view_layer.objects.active = cube
+    cube.select_set(True)
+    _cursor((-10, 0, 0))
+    assert bpy.ops.print_splitter.measure_point(which='A') == {'FINISHED'}
+    _cursor((10, 0, 0))
+    bpy.ops.print_splitter.measure_point(which='B')
+    from print_splitter import measure
+    close(measure.measured(cube)[2], 20.0, 1e-6)
+    s.known_distance = 50.0
+    s.measure_mode = 'ALONG'
+    assert bpy.ops.print_splitter.scale_to_distance() == {'FINISHED'}
+    ctx.view_layer.update()
+    for got, want in zip(cube.dimensions, (50.0, 20.0, 20.0)):
+        close(got, want, 1e-3)
+    close(measure.measured(cube)[2], 50.0, 1e-4)
+    # Re-measure across Y and scale evenly: the shape is kept.
+    _cursor((0, -10, 0))
+    bpy.ops.print_splitter.measure_point(which='A')
+    _cursor((0, 10, 0))
+    bpy.ops.print_splitter.measure_point(which='B')
+    s.known_distance = 10.0
+    s.measure_mode = 'UNIFORM'
+    bpy.ops.print_splitter.scale_to_distance()
+    ctx.view_layer.update()
+    for got, want in zip(cube.dimensions, (25.0, 10.0, 10.0)):
+        close(got, want, 1e-3)
+
+
+def test_scale_to_bed():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    a = _cube("A", 100.0)
+    a.scale = (5.0, 1.0, 0.5)  # 500 x 100 x 50
+    b = _cube("B", 10.0, (300, 0, 0))
+    ctx.view_layer.update()
+    for o in (a, b):
+        o.select_set(True)
+    s.bed_fill = 90.0
+    s.bed_allow_turn = False
+    assert bpy.ops.print_splitter.scale_to_bed() == {'FINISHED'}
+    from print_splitter import measure
+    lo, hi = measure._world_extent([a, b])
+    close(float((hi - lo).max()), 256.0 * 0.9, 1e-3)
+
+
+def test_import_scan_units():
+    import tempfile
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    with tempfile.TemporaryDirectory() as d:
+        scan = _cube("Scan", 0.2)  # a 200 mm head scanned "in metres"
+        part = _cube("Part", 150.0, (500, 0, 0))
+        for obj, name in ((scan, "scan.obj"), (part, "part.stl")):
+            for o in ctx.selected_objects:
+                o.select_set(False)
+            obj.select_set(True)
+            if name.endswith(".obj"):
+                bpy.ops.wm.obj_export(filepath=os.path.join(d, name), export_selected_objects=True,
+                                      export_materials=False)
+            else:
+                bpy.ops.wm.stl_export(filepath=os.path.join(d, name), export_selected_objects=True)
+        bpy.data.objects.remove(scan)
+        bpy.data.objects.remove(part)
+        assert bpy.ops.print_splitter.import_model(filepath=os.path.join(d, "scan.obj")) \
+            == {'FINISHED'}
+        ctx.view_layer.update()
+        assert s.reference is not None
+        close(max(s.reference.dimensions), 200.0, 1e-3)
+        assert bpy.ops.print_splitter.import_model(filepath=os.path.join(d, "part.stl"),
+                                                   use_as='ITEM') == {'FINISHED'}
+        ctx.view_layer.update()
+        close(max(s.item.dimensions), 150.0, 1e-3)
+        assert bpy.ops.print_splitter.import_model(filepath=os.path.join(d, "part.stl"),
+                                                   file_units='IN', use_as='NONE') == {'FINISHED'}
+        ctx.view_layer.update()
+        newest = [o for o in ctx.selected_objects if o.type == 'MESH'][0]  # just imported
+        close(max(newest.dimensions), 150.0 * 25.4, 1e-2)
+
+
+def test_reference_image_calibration():
+    import tempfile
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    with tempfile.TemporaryDirectory() as d:
+        img = bpy.data.images.new("photo", 400, 200)
+        path = os.path.join(d, "photo.png")
+        img.filepath_raw = path
+        img.file_format = 'PNG'
+        img.save()
+        assert bpy.ops.print_splitter.add_reference_image(filepath=path, facing='FRONT',
+                                                          width=100.0) == {'FINISHED'}
+    plane = ctx.active_object
+    ctx.view_layer.update()
+    close(plane.dimensions.x, 100.0, 1e-4)
+    close(plane.dimensions.y, 50.0, 1e-4)  # keeps the photo's aspect ratio
+    # Upright in the front view: spans X and Z.
+    zs = [(plane.matrix_world @ v.co).z for v in plane.data.vertices]
+    close(max(zs) - min(zs), 50.0, 1e-4)
+    # Something in the photo known to be 85.6 mm wide spans 40 % of it.
+    _cursor((-20, 0, 0))
+    bpy.ops.print_splitter.measure_point(which='A')
+    _cursor((20, 0, 0))
+    bpy.ops.print_splitter.measure_point(which='B')
+    s.known_distance = 85.6
+    bpy.ops.print_splitter.scale_to_distance()
+    ctx.view_layer.update()
+    close(plane.dimensions.x, 214.0, 1e-3)
+
+
+class _Layout:
+    """Stand-in for a panel layout that records labels and buttons, so panel
+    drawing code runs without a window."""
+
+    def __init__(self, log=None):
+        self.log = log if log is not None else []
+
+    def __getattr__(self, name):
+        return _Layout(self.log)
+
+    def __setattr__(self, name, value):
+        object.__setattr__(self, name, value)
+
+    def __call__(self, *args, **kwargs):
+        if args and isinstance(args[0], str):
+            self.log.append((args[0], kwargs.get("text")))
+        elif "text" in kwargs:
+            self.log.append(("label", kwargs["text"]))
+        return _Layout(self.log)
+
+
+def _draw_panel(name, ctx):
+    from print_splitter import ui
+    panel = next(c for c in ui.classes if c.__name__ == name)
+    holder = type("Holder", (), {})()
+    holder.layout = _Layout()
+    panel.draw(holder, ctx)
+    return holder.layout.log
+
+
+def test_panels_draw_for_every_flow():
+    ctx = reset()
+    s = ctx.scene.print_splitter
+    bpy.ops.print_splitter.add_head()
+    s.item = _cube("Mask", 200.0)
+    _cursor((0, 0, 112))
+    bpy.ops.print_splitter.add_point(target='REFERENCE', name="Crown")
+    s.show_calibrate = True
+    seen = {}
+    for flow in [i.identifier for i in s.bl_rna.properties["flow"].enum_items]:
+        s.flow = flow
+        seen[flow] = _draw_panel("PRINTSPLIT_PT_fit", ctx)
+    ops = lambda log: {a for a, _t in log if a.startswith("print_splitter.")}
+    assert "print_splitter.fit_to_points" in ops(seen['HEAD'])
+    assert ("print_splitter.add_point", "Mark on Mask") in seen['HEAD']
+    assert "print_splitter.scale_to_distance" in ops(seen['DISTANCE'])
+    assert "print_splitter.scale_to_bed" in ops(seen['BED'])
+    for name in ("PRINTSPLIT_PT_split", "PRINTSPLIT_PT_pins", "PRINTSPLIT_PT_do_split"):
+        _draw_panel(name, ctx)
+
+
 def test_plane_misses():
     ctx, s, obj, plane = setup_split('BOOLEAN')
     plane.location = (0, 0, 500)
@@ -453,7 +706,7 @@ def test_head_dimensions():
     s = ctx.scene.print_splitter
     s.head_width, s.head_length, s.head_height = 140.0, 180.0, 210.0
     assert bpy.ops.print_splitter.add_head() == {'FINISHED'}
-    head = s.head
+    head = s.reference
     assert non_manifold_edges(head) == 0
     d = head.dimensions
     close(d.z, 210.0, 0.5)
@@ -482,9 +735,9 @@ def test_fit_and_scale_mask():
     s = ctx.scene.print_splitter
     s.head_width, s.head_length, s.head_height = 150.0, 190.0, 225.0
     bpy.ops.print_splitter.add_head()
-    head = s.head
+    head = s.reference
     mask = shell("Mask", 115.0, 105.0)  # inner Ø210: too small for this head
-    s.mask = mask
+    s.item = mask
     s.min_clearance = 3.0
     s.fit_range = 60.0
     assert bpy.ops.print_splitter.check_fit() == {'FINISHED'}

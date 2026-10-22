@@ -2,6 +2,7 @@ import bpy
 
 from . import head as head_mod
 from . import landmarks
+from . import measure
 from . import sizing
 from .ops_split import get_target, pin_markers
 from .units import bu_to_mm
@@ -144,61 +145,160 @@ class PRINTSPLIT_PT_do_split(_Panel, bpy.types.Panel):
         col.operator("print_splitter.export", icon='EXPORT')
 
 
+# Labels for the reference and the item in each sizing flow.
+ROLES = {
+    'HEAD': ("Head", "Mask"),
+    'DISTANCE': ("Reference", "Item"),
+    'BED': ("Reference", "Item"),
+}
+
+
+def _roles(s):
+    return ROLES.get(s.flow, ("Reference", "Item"))
+
+
 def _draw_points(layout, context):
     s = context.scene.print_splitter
+    ref_name, item_name = _roles(s)
     box = layout.box()
-    box.label(text="Reference points", icon='EMPTY_SINGLE_ARROW')
+    box.label(text="Matching points", icon='EMPTY_SINGLE_ARROW')
     col = box.column(align=True)
     col.label(text="Shift + right-click a spot to put the")
-    col.label(text="cursor there, then Add Point. Mark the")
-    col.label(text="same spots on mask and head, in the")
-    col.label(text="same order (e.g. crown, temples, chin).")
-    n_mask = len(landmarks.points(s.mask))
-    n_head = len(landmarks.points(s.head))
-    col = box.column(align=True)
-    col.label(text="Mask %d points, head %d points" % (n_mask, n_head))
-    mp, hp = landmarks.pairs(s.mask, s.head)
-    if len(mp) >= 2:
-        ratio = landmarks.spread_ratio(mp, hp)
+    col.label(text="cursor there, or select vertices in Edit")
+    col.label(text="Mode (e.g. an eye hole's rim), then Add.")
+
+    ref_labels = landmarks.labels(s.reference)
+    item_labels = landmarks.labels(s.item)
+    if ref_labels or item_labels:
+        col = box.column(align=True)
+        for name in ref_labels:
+            row = col.row(align=True)
+            have = name in item_labels
+            row.label(text=name, icon='CHECKBOX_HLT' if have else 'CHECKBOX_DEHLT')
+            if have:
+                op = row.operator("print_splitter.remove_point", text="", icon='X')
+                op.target, op.name = 'ITEM', name
+            else:
+                op = row.operator("print_splitter.add_point", text="Mark on %s" % item_name)
+                op.target, op.name = 'ITEM', name
+        for name in item_labels:
+            if name not in ref_labels:
+                row = col.row(align=True)
+                row.label(text="%s (%s only)" % (name, item_name.lower()), icon='ERROR')
+                op = row.operator("print_splitter.remove_point", text="", icon='X')
+                op.target, op.name = 'ITEM', name
+
+    ip, rp = landmarks.pairs(s.item, s.reference)
+    if len(ip) >= 2:
+        ratio = landmarks.spread_ratio(ip, rp)
         if ratio is not None:
-            col.label(text="Mask needs scaling to %.1f%%" % (ratio * 100.0))
+            box.label(text="%d pairs: %s needs scaling to %.1f%%"
+                      % (len(ip), item_name, ratio * 100.0))
     row = box.row(align=True)
-    row.operator("print_splitter.add_point", icon='PIVOT_CURSOR')
+    op = row.operator("print_splitter.add_point", text="Add on %s" % ref_name,
+                      icon='PIVOT_CURSOR')
+    op.target, op.name = 'REFERENCE', ""
+    op = row.operator("print_splitter.add_point", text="Add on %s" % item_name)
+    op.target, op.name = 'ITEM', ""
     row.operator("print_splitter.clear_points", text="", icon='X')
     box.prop(s, "point_fit")
-    box.operator("print_splitter.fit_to_points", icon='CON_SIZELIKE')
+    box.operator("print_splitter.fit_to_points", text="Fit %s to Points" % item_name,
+                 icon='CON_SIZELIKE')
+
+
+def _draw_measure(layout, context, title="Known distance"):
+    s = context.scene.print_splitter
+    box = layout.box()
+    box.label(text=title, icon='DRIVER_DISTANCE')
+    obj = measure.measure_owner(context)
+    if obj is None or obj.type != 'MESH':
+        box.label(text="Select the object to measure")
+        return
+    col = box.column(align=True)
+    col.label(text="On: %s" % obj.name, icon='OBJECT_DATA')
+    col.label(text="Put the cursor on a spot (Shift +")
+    col.label(text="right-click) or select vertices, then:")
+    row = col.row(align=True)
+    row.operator("print_splitter.measure_point", text="Set A").which = 'A'
+    row.operator("print_splitter.measure_point", text="Set B").which = 'B'
+    m = measure.measured(obj)
+    if m is not None:
+        col.label(text="A to B now: %.2f mm" % (m[2] * bu_to_mm(context)))
+    col = box.column(align=True)
+    col.prop(s, "known_distance")
+    col.prop(s, "measure_mode", expand=True)
+    col.operator("print_splitter.scale_to_distance", icon='FULLSCREEN_ENTER')
+
+
+def _draw_head_reference(layout, context):
+    s = context.scene.print_splitter
+    col = layout.column(align=True)
+    col.label(text="Head measurements")
+    col.prop(s, "head_width")
+    col.prop(s, "head_length")
+    col.prop(s, "head_height")
+    col.label(text="≈ %.0f mm around (tape check)"
+              % head_mod.head_circumference(s.head_width, s.head_length))
+    col.operator("print_splitter.add_head", icon='USER')
+    col.operator("print_splitter.scale_to_measurements", icon='FULLSCREEN_ENTER')
+
+
+def _draw_import(layout, context, use_as='REFERENCE'):
+    row = layout.row(align=True)
+    row.operator("print_splitter.import_model", icon='IMPORT').use_as = use_as
+    row.operator("print_splitter.add_reference_image", text="Image", icon='IMAGE_DATA')
+
+
+def _draw_match(layout, context, clearance=True):
+    s = context.scene.print_splitter
+    ref_name, item_name = _roles(s)
+    col = layout.column(align=True)
+    col.prop(s, "reference", text=ref_name)
+    col.prop(s, "item", text=item_name)
+    _draw_points(layout, context)
+    if not clearance:
+        return
+    col = layout.column(align=True)
+    col.label(text="Clearance")
+    col.prop(s, "min_clearance")
+    col.prop(s, "fit_range")
+    col.operator("print_splitter.check_fit", icon='VIEWZOOM')
+    col.prop(s, "fit_axes")
+    col.operator("print_splitter.scale_mask_to_fit", icon='FULLSCREEN_EXIT')
 
 
 class PRINTSPLIT_PT_fit(_Panel, bpy.types.Panel):
-    bl_label = "Head Fit"
-    bl_options = {'DEFAULT_CLOSED'}
+    bl_label = "Scale & Fit"
 
     def draw(self, context):
         s = context.scene.print_splitter
         layout = self.layout
+        layout.prop(s, "flow", text="")
 
-        col = layout.column(align=True)
-        col.label(text="Head measurements")
-        col.prop(s, "head_width")
-        col.prop(s, "head_length")
-        col.prop(s, "head_height")
-        col.label(text="≈ %.0f mm around (tape check)"
-                  % head_mod.head_circumference(s.head_width, s.head_length))
-        col.operator("print_splitter.add_head", icon='USER')
-        col.operator("print_splitter.scale_to_measurements", icon='FULLSCREEN_ENTER')
-
-        col = layout.column(align=True)
-        col.prop(s, "head")
-        col.prop(s, "mask")
-        _draw_points(layout, context)
-
-        col = layout.column(align=True)
-        col.label(text="Clearance")
-        col.prop(s, "min_clearance")
-        col.prop(s, "fit_range")
-        col.operator("print_splitter.check_fit", icon='VIEWZOOM')
-        col.prop(s, "fit_axes")
-        col.operator("print_splitter.scale_mask_to_fit", icon='FULLSCREEN_EXIT')
+        if s.flow == 'HEAD':
+            _draw_head_reference(layout, context)
+            layout.prop(s, "show_calibrate",
+                        icon='TRIA_DOWN' if s.show_calibrate else 'TRIA_RIGHT')
+            if s.show_calibrate:
+                box = layout.box()
+                box.label(text="Use a head scan or model instead:")
+                _draw_import(box, context)
+                _draw_measure(box, context, "Calibrate it")
+            _draw_match(layout, context)
+        elif s.flow == 'DISTANCE':
+            layout.label(text="Bring in a model, scan or photo:")
+            _draw_import(layout, context, 'NONE')
+            _draw_measure(layout, context)
+        elif s.flow == 'BED':
+            col = layout.column(align=True)
+            row = col.row(align=True)
+            row.label(text="Bed (mm)")
+            row.prop(s, "bed_x", text="")
+            row.prop(s, "bed_y", text="")
+            row.prop(s, "bed_z", text="")
+            col.prop(s, "bed_fill")
+            col.prop(s, "bed_allow_turn")
+            col.operator("print_splitter.scale_to_bed", icon='FULLSCREEN_ENTER')
 
         obj = context.active_object
         if obj is not None and obj.type == 'MESH':
@@ -209,10 +309,10 @@ class PRINTSPLIT_PT_fit(_Panel, bpy.types.Panel):
 
 
 classes = (
+    PRINTSPLIT_PT_fit,
     PRINTSPLIT_PT_split,
     PRINTSPLIT_PT_pins,
     PRINTSPLIT_PT_do_split,
-    PRINTSPLIT_PT_fit,
 )
 
 

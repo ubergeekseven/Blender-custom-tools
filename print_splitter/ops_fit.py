@@ -112,15 +112,15 @@ def _show_attribute_colors(context):
                     space.shading.color_type = 'VERTEX'
 
 
-def _head_and_mask(op, context):
+def _reference_and_item(op, context):
     s = context.scene.print_splitter
-    if s.head is None or s.mask is None:
-        op.report({'ERROR'}, "Pick both a head and a mask")
+    if s.reference is None or s.item is None:
+        op.report({'ERROR'}, "Pick both the reference and the item")
         return None, None
-    if s.head is s.mask:
-        op.report({'ERROR'}, "Head and mask must be different objects")
+    if s.reference is s.item:
+        op.report({'ERROR'}, "Reference and item must be different objects")
         return None, None
-    return s.head, s.mask
+    return s.reference, s.item
 
 
 class PRINTSPLIT_OT_add_head(bpy.types.Operator):
@@ -139,7 +139,7 @@ class PRINTSPLIT_OT_add_head(bpy.types.Operator):
         obj = bpy.data.objects.new("Head", me)
         obj.location = context.scene.cursor.location
         context.collection.objects.link(obj)
-        s.head = obj
+        s.reference = obj
         for o in context.selected_objects:
             o.select_set(False)
         obj.select_set(True)
@@ -184,15 +184,15 @@ class PRINTSPLIT_OT_scale_to_measurements(bpy.types.Operator):
 
 
 class PRINTSPLIT_OT_check_fit(bpy.types.Operator):
-    """Colour the head by how it sits in the mask: red where it pokes into the
-    mask, orange where the gap is under Min Gap, green where it fits, grey
-    where the mask is out of range"""
+    """Colour the reference (e.g. head) by how it sits in the item (e.g.
+    mask): red where it pokes into the item, orange where the gap is under
+    Min Gap, green where it fits, grey where the item is out of range"""
     bl_idname = "print_splitter.check_fit"
     bl_label = "Check Fit"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        head, mask = _head_and_mask(self, context)
+        head, mask = _reference_and_item(self, context)
         if head is None:
             return {'CANCELLED'}
         s = context.scene.print_splitter
@@ -204,10 +204,10 @@ class PRINTSPLIT_OT_check_fit(bpy.types.Operator):
         to_mm = bu_to_mm(context)
         hits = classes.count('HIT')
         if hits:
-            self.report({'WARNING'}, "Head goes into the mask at %d points, up to %.1f mm"
+            self.report({'WARNING'}, "The reference goes into the item at %d points, up to %.1f mm"
                         % (hits, overlap * to_mm))
         elif min_gap == float("inf"):
-            self.report({'WARNING'}, "The mask is not within Check Range of the head")
+            self.report({'WARNING'}, "The item is not within Check Range of the reference")
         else:
             level = 'INFO' if min_gap >= s.min_clearance * mm else 'WARNING'
             self.report({level}, "No contact; smallest gap %.1f mm" % (min_gap * to_mm))
@@ -215,15 +215,15 @@ class PRINTSPLIT_OT_check_fit(bpy.types.Operator):
 
 
 class PRINTSPLIT_OT_scale_mask_to_fit(bpy.types.Operator):
-    """Scale the mask about the head's centre until the closest gap is Min
-    Gap: grows a mask that is too tight, shrinks one that is too loose. Put
-    the head where it will sit inside the mask first"""
+    """Scale the item about the reference's centre until the closest gap is
+    Min Gap: grows an item that is too tight, shrinks one that is too loose.
+    Put the reference where it will sit in the item first"""
     bl_idname = "print_splitter.scale_mask_to_fit"
-    bl_label = "Scale Mask to Fit"
+    bl_label = "Scale to Clearance"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        head, mask = _head_and_mask(self, context)
+        head, mask = _reference_and_item(self, context)
         if head is None:
             return {'CANCELLED'}
         s = context.scene.print_splitter
@@ -249,7 +249,7 @@ class PRINTSPLIT_OT_scale_mask_to_fit(bpy.types.Operator):
             while k >= 0.5 and fits(k):
                 good, k = k, k / step
             if k < 0.5:
-                self.report({'ERROR'}, "The mask doesn't come near the head. Move the "
+                self.report({'ERROR'}, "The item doesn't come near the reference. Move the "
                                        "head into the mask first")
                 return {'CANCELLED'}
             bad = k
@@ -259,7 +259,7 @@ class PRINTSPLIT_OT_scale_mask_to_fit(bpy.types.Operator):
                 bad, k = k, k * step
             if k > 3.0:
                 self.report({'ERROR'}, "Couldn't find a fit up to 3x. Check that the "
-                                       "head is positioned inside the mask")
+                                       "reference sits inside the item")
                 return {'CANCELLED'}
             good = k
         for _ in range(16):
@@ -270,7 +270,7 @@ class PRINTSPLIT_OT_scale_mask_to_fit(bpy.types.Operator):
                 bad = mid
         hi = good
         scale_about(mask, pivot, factors(hi))
-        self.report({'INFO'}, "Scaled mask by %.1f%%" % (hi * 100.0))
+        self.report({'INFO'}, "Scaled item by %.1f%%" % (hi * 100.0))
         return {'FINISHED'}
 
 

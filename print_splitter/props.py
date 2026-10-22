@@ -113,35 +113,70 @@ class PrintSplitterSettings(bpy.types.PropertyGroup):
     head_height: FloatProperty(
         name="Height (mm)", min=50.0, soft_max=350.0, default=225.0,
         description="Chin to the top of the head")
-    head: PointerProperty(
-        name="Head", type=bpy.types.Object, poll=_is_mesh,
-        description="Head model to test the fit against")
-    mask: PointerProperty(
-        name="Mask", type=bpy.types.Object, poll=_is_mesh,
-        description="Mask or helmet that goes over the head")
+    flow: EnumProperty(
+        name="Sizing",
+        description="What you're sizing. The panel shows the tools for it",
+        items=[
+            ('HEAD', "Head: mask, helmet, hat", "Fit something worn on the head"),
+            ('DISTANCE', "Known distance: scan, photo, any model",
+             "Scale anything from two points and the real distance between them"),
+            ('BED', "Fit the print bed", "Scale to fill the printer's build volume"),
+        ],
+        default='HEAD')
+    reference: PointerProperty(
+        name="Reference", type=bpy.types.Object, poll=_is_mesh,
+        description="What you measure against: a head, a body part, a real-world object "
+                    "or a calibrated scan")
+    item: PointerProperty(
+        name="Item", type=bpy.types.Object, poll=_is_mesh,
+        description="What you're sizing to the reference, e.g. a mask")
+    show_calibrate: BoolProperty(
+        name="Imported reference", default=False,
+        description="Import a scan or model as the reference and calibrate its size")
     min_clearance: FloatProperty(
         name="Min Gap (mm)", min=0.0, soft_max=30.0, default=3.0,
-        description="Smallest gap wanted between head and mask (padding, hair)")
+        description="Smallest gap wanted between reference and item (padding, hair)")
     fit_range: FloatProperty(
         name="Check Range (mm)", min=1.0, soft_max=200.0, default=40.0,
-        description="Head areas further than this from the mask are not checked "
+        description="Reference areas further than this from the item are not checked "
                     "(e.g. the neck below a mask)")
     point_fit: EnumProperty(
         name="Fit",
         items=[
             ('SCALE', "Scale only",
-             "Resize the mask; it stays where it is (2+ point pairs)"),
+             "Resize evenly; the item stays where it is (2+ point pairs)"),
             ('SCALE_MOVE', "Scale and move",
-             "Resize the mask and move it onto the head (2+ point pairs)"),
+             "Resize evenly and move onto the reference (2+ point pairs)"),
             ('ALIGN', "Scale, move and turn",
-             "Best fit of size, position and rotation (3+ point pairs)"),
+             "Best even resize, position and rotation (3+ point pairs)"),
+            ('AXES', "Stretch per axis",
+             "Resize X, Y and Z separately and move onto the reference. Changes the "
+             "shape; needs points spread out in each direction"),
         ],
         default='SCALE_MOVE')
+    # ---- known distance ----------------------------------------------------
+    known_distance: FloatProperty(
+        name="Real Distance (mm)", min=0.001, soft_max=2000.0, default=100.0,
+        description="What the distance between points A and B should be")
+    measure_mode: EnumProperty(
+        name="Scale",
+        items=[('UNIFORM', "Uniform", "Scale evenly in every direction: shape stays the same"),
+               ('ALONG', "Along A-B only",
+                "Stretch or squash only in the direction from A to B")],
+        default='UNIFORM')
+    # ---- fit the bed -------------------------------------------------------
+    bed_fill: FloatProperty(
+        name="Fill (%)", min=1.0, max=100.0, default=95.0,
+        description="How much of the bed the selection may use, leaving a margin")
+    bed_allow_turn: BoolProperty(
+        name="Allow turning", default=True,
+        description="Size for the best orientation; you may need to turn the "
+                    "model in the slicer")
     fit_axes: EnumProperty(
         name="Scale",
         items=[
-            ('XYZ', "Uniform", "Scale the mask equally in all directions"),
-            ('XY', "Width + Depth", "Keep the mask's height"),
+            ('XYZ', "Uniform", "Scale equally in all directions"),
+            ('XY', "Width + Depth", "Keep the height"),
             ('X', "Width only", ""),
         ],
         default='XYZ')

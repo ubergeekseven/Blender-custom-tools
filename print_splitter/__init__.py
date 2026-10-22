@@ -15,15 +15,15 @@ bl_info = {
 if "bpy" in locals():
     import importlib
     for _m in (units, geometry, head, props, sizing, ops_split, ops_fit, landmarks,  # noqa: F821
-               export, ui):  # noqa: F821
+               measure, export, ui):  # noqa: F821
         importlib.reload(_m)
 
 import bpy  # noqa: E402,F401
 
-from . import (export, geometry, head, landmarks, ops_fit, ops_split, props,  # noqa: E402
-               sizing, ui, units)
+from . import (export, geometry, head, landmarks, measure, ops_fit, ops_split,  # noqa: E402
+               props, sizing, ui, units)
 
-_modules = (props, sizing, ops_split, ops_fit, landmarks, export, ui)
+_modules = (props, sizing, ops_split, ops_fit, landmarks, measure, export, ui)
 
 
 def register():
